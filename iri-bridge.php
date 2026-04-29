@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 1.1.0
+ * Version: 1.2.0
  * GitHub Plugin URI: emperorTikki/iri-bridge
  * Primary Branch: main
  */
@@ -700,12 +700,22 @@ function iri_enqueue_archive_assets() {
     $done = true;
 
     // IRI_ARCHIVE_CONFIG is output globally via wp_head (section 0 at top of file).
+
+    // Archive JS — loaded from plugin folder, updated automatically via Git Updater
+    wp_enqueue_script(
+        'iri-archive',
+        plugin_dir_url( __FILE__ ) . 'iri-archive.js',
+        [],
+        filemtime( plugin_dir_path( __FILE__ ) . 'iri-archive.js' ),
+        true  // load in footer
+    );
+
     // Google Maps — loads async; fires window.iriMapReady when ready
     if ( defined( 'IRI_MAPS_KEY' ) && IRI_MAPS_KEY && IRI_MAPS_KEY !== 'YOUR_GOOGLE_MAPS_KEY' ) {
         wp_enqueue_script(
             'google-maps',
             'https://maps.googleapis.com/maps/api/js?key=' . IRI_MAPS_KEY . '&callback=iriMapReady&loading=async',
-            [],   // no dependency — iri-archive.js is inline in Bricks Custom Code
+            [ 'iri-archive' ],
             null,
             true
         );
