@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 1.3.0
+ * Version: 1.4.0
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -134,7 +134,7 @@ function iri_output_schema_jsonld() {
     $cf_ids    = array_filter( explode( '|', $l['cf_images'] ?? '' ) );
     $image_url = '';
     if ( $cf_ids ) {
-        $image_url = 'https://imagedelivery.net/' . IRI_CF_ACCOUNT_HASH . '/' . reset( $cf_ids ) . '/full';
+        $image_url = 'https://imagedelivery.net/' . IRI_CF_ACCOUNT_HASH . '/' . reset( $cf_ids ) . '/fullsize';
     } elseif ( $l['images'] ?? '' ) {
         $raw       = explode( '|', $l['images'] );
         $image_url = trim( $raw[0] ?? '' );
@@ -439,9 +439,11 @@ function iri_resolve_field( $field, $listing ) {
     }
 
     // CF Image URL helpers for a specific variant
-    // Usage: {iri__cf_thumbnail_1} → first image at thumbnail size
+    // Usage: {iri__cf_thumbnail_1} → first image at thumbnail size (300×300)
+    //        {iri__cf_medium_1}    → first image at medium size (800×600)
+    //        {iri__cf_full_1}      → first image at fullsize (1600×1200) — CF variant named "fullsize"
     if ( preg_match( '/^_cf_(thumbnail|medium|full)_(\d+)$/', $field, $m ) ) {
-        $variant = $m[1];
+        $variant = $m[1] === 'full' ? 'fullsize' : $m[1]; // CF variant is "fullsize" not "full"
         $index   = (int) $m[2] - 1; // 1-based → 0-based
         $cf      = $listing['cf_images'] ?? '';
         $ids     = array_filter( explode( '|', $cf ) );
@@ -479,8 +481,7 @@ function iri_build_gallery_html( $listing ) {
         $html  = '<div class="iri-gallery iri-gallery--fallback">';
         foreach ( $urls as $i => $url ) {
             $alt  = esc_attr( $title . ' – photo ' . ( $i + 1 ) );
-            $html .= '<a class="bricks-lightbox iri-gallery__item" href="' . esc_url( $url ) . '" '
-                   . 'data-alt="' . $alt . '">'
+            $html .= '<a class="bricks-lightbox iri-gallery__item" href="' . esc_url( $url ) . '">'
                    . '<img src="' . esc_url( $url ) . '" alt="' . $alt . '" loading="lazy">'
                    . '</a>';
         }
@@ -493,10 +494,10 @@ function iri_build_gallery_html( $listing ) {
 
     $html = '<div class="iri-gallery">';
     foreach ( $ids as $i => $id ) {
-        $alt    = esc_attr( $alts[ $i ] ?? ( $listing['title_en'] ?? 'Listing' ) );
-        $medium = 'https://imagedelivery.net/' . $hash . '/' . $id . '/medium';
-        $full   = 'https://imagedelivery.net/' . $hash . '/' . $id . '/full';
-        $html .= '<a class="bricks-lightbox iri-gallery__item" href="' . esc_url( $full ) . '">'
+        $alt      = esc_attr( $alts[ $i ] ?? ( $listing['title_en'] ?? 'Listing' ) );
+        $medium   = 'https://imagedelivery.net/' . $hash . '/' . $id . '/medium';
+        $fullsize = 'https://imagedelivery.net/' . $hash . '/' . $id . '/fullsize';
+        $html .= '<a class="bricks-lightbox iri-gallery__item" href="' . esc_url( $fullsize ) . '">'
                . '<img src="' . esc_url( $medium ) . '" alt="' . $alt . '" loading="lazy">'
                . '</a>';
     }
