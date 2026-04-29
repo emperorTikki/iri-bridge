@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 1.2.0
+ * Version: 1.3.0
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -479,8 +479,8 @@ function iri_build_gallery_html( $listing ) {
         $html  = '<div class="iri-gallery iri-gallery--fallback">';
         foreach ( $urls as $i => $url ) {
             $alt  = esc_attr( $title . ' – photo ' . ( $i + 1 ) );
-            $html .= '<a class="iri-gallery__item" href="' . esc_url( $url ) . '" '
-                   . 'data-lightbox="iri-listing" data-alt="' . $alt . '">'
+            $html .= '<a class="bricks-lightbox iri-gallery__item" href="' . esc_url( $url ) . '" '
+                   . 'data-alt="' . $alt . '">'
                    . '<img src="' . esc_url( $url ) . '" alt="' . $alt . '" loading="lazy">'
                    . '</a>';
         }
@@ -493,14 +493,11 @@ function iri_build_gallery_html( $listing ) {
 
     $html = '<div class="iri-gallery">';
     foreach ( $ids as $i => $id ) {
-        $alt      = esc_attr( $alts[ $i ] ?? ( $listing['title_en'] ?? 'Listing' ) );
-        $thumb    = 'https://imagedelivery.net/' . $hash . '/' . $id . '/thumbnail';
-        $medium   = 'https://imagedelivery.net/' . $hash . '/' . $id . '/medium';
-        $full     = 'https://imagedelivery.net/' . $hash . '/' . $id . '/full';
-        $html .= '<a class="iri-gallery__item" href="' . esc_url( $full ) . '" '
-               . 'data-lightbox="iri-listing" data-alt="' . $alt . '" '
-               . 'data-medium="' . esc_url( $medium ) . '">'
-               . '<img src="' . esc_url( $thumb ) . '" alt="' . $alt . '" loading="lazy">'
+        $alt    = esc_attr( $alts[ $i ] ?? ( $listing['title_en'] ?? 'Listing' ) );
+        $medium = 'https://imagedelivery.net/' . $hash . '/' . $id . '/medium';
+        $full   = 'https://imagedelivery.net/' . $hash . '/' . $id . '/full';
+        $html .= '<a class="bricks-lightbox iri-gallery__item" href="' . esc_url( $full ) . '">'
+               . '<img src="' . esc_url( $medium ) . '" alt="' . $alt . '" loading="lazy">'
                . '</a>';
     }
     $html .= '</div>';
