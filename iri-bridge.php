@@ -6,7 +6,6 @@
  *              and registers dynamic data tags for all listing fields.
  * Version: 1.2.0
  * GitHub Plugin URI: emperorTikki/iri-bridge
- * Primary Branch: main
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
