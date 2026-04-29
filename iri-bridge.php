@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 1.4.0
+ * Version: 1.5.0
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -333,6 +333,25 @@ function iri_template_redirect() {
         return ( $listing['title_en'] ?? 'Listing' ) . ' | ' . get_bloginfo( 'name' );
     } );
 
+    // Enqueue GLightbox on single listing pages for gallery lightbox support
+    add_action( 'wp_enqueue_scripts', function() {
+        wp_enqueue_style(
+            'glightbox',
+            'https://cdn.jsdelivr.net/npm/glightbox/dist/css/glightbox.min.css',
+            [],
+            null
+        );
+        wp_enqueue_script(
+            'glightbox',
+            'https://cdn.jsdelivr.net/npm/glightbox/dist/js/glightbox.min.js',
+            [],
+            null,
+            true
+        );
+        // Initialise GLightbox after the page loads
+        wp_add_inline_script( 'glightbox', 'document.addEventListener("DOMContentLoaded",function(){GLightbox({selector:".glightbox"});});' );
+    } );
+
     // ── Output buffer: replace {iri_*} tokens directly in the rendered HTML ──────
     // This works regardless of how Bricks internally handles dynamic data tags.
     ob_start( 'iri_resolve_tokens_in_output' );
@@ -481,7 +500,7 @@ function iri_build_gallery_html( $listing ) {
         $html  = '<div class="iri-gallery iri-gallery--fallback">';
         foreach ( $urls as $i => $url ) {
             $alt  = esc_attr( $title . ' – photo ' . ( $i + 1 ) );
-            $html .= '<a class="bricks-lightbox iri-gallery__item" href="' . esc_url( $url ) . '">'
+            $html .= '<a class="glightbox iri-gallery__item" href="' . esc_url( $url ) . '">'
                    . '<img src="' . esc_url( $url ) . '" alt="' . $alt . '" loading="lazy">'
                    . '</a>';
         }
@@ -497,7 +516,7 @@ function iri_build_gallery_html( $listing ) {
         $alt      = esc_attr( $alts[ $i ] ?? ( $listing['title_en'] ?? 'Listing' ) );
         $medium   = 'https://imagedelivery.net/' . $hash . '/' . $id . '/medium';
         $fullsize = 'https://imagedelivery.net/' . $hash . '/' . $id . '/fullsize';
-        $html .= '<a class="bricks-lightbox iri-gallery__item" href="' . esc_url( $fullsize ) . '">'
+        $html .= '<a class="glightbox iri-gallery__item" href="' . esc_url( $fullsize ) . '">'
                . '<img src="' . esc_url( $medium ) . '" alt="' . $alt . '" loading="lazy">'
                . '</a>';
     }
