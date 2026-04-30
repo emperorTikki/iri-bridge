@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 1.5.0
+ * Version: 1.6.0
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -500,7 +500,7 @@ function iri_build_gallery_html( $listing ) {
         $html  = '<div class="iri-gallery iri-gallery--fallback">';
         foreach ( $urls as $i => $url ) {
             $alt  = esc_attr( $title . ' – photo ' . ( $i + 1 ) );
-            $html .= '<a class="glightbox iri-gallery__item" href="' . esc_url( $url ) . '">'
+            $html .= '<a class="glightbox iri-gallery__item" href="' . esc_url( $url ) . '" data-type="image">'
                    . '<img src="' . esc_url( $url ) . '" alt="' . $alt . '" loading="lazy">'
                    . '</a>';
         }
@@ -516,7 +516,7 @@ function iri_build_gallery_html( $listing ) {
         $alt      = esc_attr( $alts[ $i ] ?? ( $listing['title_en'] ?? 'Listing' ) );
         $medium   = 'https://imagedelivery.net/' . $hash . '/' . $id . '/medium';
         $fullsize = 'https://imagedelivery.net/' . $hash . '/' . $id . '/fullsize';
-        $html .= '<a class="glightbox iri-gallery__item" href="' . esc_url( $fullsize ) . '">'
+        $html .= '<a class="glightbox iri-gallery__item" href="' . esc_url( $fullsize ) . '" data-type="image">'
                . '<img src="' . esc_url( $medium ) . '" alt="' . $alt . '" loading="lazy">'
                . '</a>';
     }
