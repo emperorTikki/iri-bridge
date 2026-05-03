@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 1.9.1
+ * Version: 1.9.2
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -468,7 +468,10 @@ function iri_resolve_field( $field, $listing ) {
         $cf      = $listing['cf_images'] ?? '';
         $ids     = array_filter( explode( '|', $cf ) );
         $id      = $ids[ $index ] ?? '';
-        if ( ! $id ) return '';
+        if ( ! $id ) {
+            // Only show no-photo placeholder for the first image slot
+            return $index === 0 ? IRI_WORKER_URL . '/no-photo.png' : '';
+        }
         return 'https://imagedelivery.net/' . IRI_CF_ACCOUNT_HASH . '/' . $id . '/' . $variant;
     }
 
