@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 1.9.0
+ * Version: 1.9.1
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -445,7 +445,7 @@ function iri_resolve_field( $field, $listing ) {
         return home_url( "/listing/{$region}/{$area}/{$slug}/" );
     }
 
-    // First image — prefers CF Images (thumbnail variant), falls back to raw URL
+    // First image — prefers CF Images (medium variant), falls back to raw URL, then no-photo placeholder
     if ( $field === '_first_image' ) {
         $cf = $listing['cf_images'] ?? '';
         if ( $cf ) {
@@ -453,8 +453,9 @@ function iri_resolve_field( $field, $listing ) {
             return 'https://imagedelivery.net/' . IRI_CF_ACCOUNT_HASH . '/' . $id . '/medium';
         }
         $raw   = $listing['images'] ?? '';
-        $parts = explode( '|', $raw );
-        return trim( $parts[0] ?? '' );
+        $parts = array_filter( explode( '|', $raw ) );
+        if ( $parts ) return trim( reset( $parts ) );
+        return IRI_WORKER_URL . '/no-photo.png';
     }
 
     // CF Image URL helpers for a specific variant
@@ -627,16 +628,15 @@ function iri_build_similar_listings_html( $listing ) {
              . '/' . esc_attr( $item['taxonomy_property_area'] ?? '' )
              . '/' . esc_attr( $item['slug'] ?? '' ) . '/' );
 
-        // Thumbnail — prefer CF Images, fall back to raw
-        $thumb = '';
-        $cf    = $item['cf_images'] ?? '';
+        // Thumbnail — prefer CF Images, fall back to raw, then no-photo placeholder
+        $cf = $item['cf_images'] ?? '';
         if ( $cf ) {
             $img_id = explode( '|', $cf )[0];
             $thumb  = 'https://imagedelivery.net/' . IRI_CF_ACCOUNT_HASH . '/' . $img_id . '/thumbnail';
         } else {
             $raw   = $item['images'] ?? '';
-            $parts = explode( '|', $raw );
-            $thumb = trim( $parts[0] ?? '' );
+            $parts = array_filter( explode( '|', $raw ) );
+            $thumb = $parts ? trim( reset( $parts ) ) : IRI_WORKER_URL . '/no-photo.png';
         }
 
         // Specs line
@@ -662,11 +662,9 @@ function iri_build_similar_listings_html( $listing ) {
 
         $html .= '<a class="iri-similar-card" href="' . esc_url( $url ) . '">';
 
-        if ( $thumb ) {
-            $html .= '<div class="iri-similar-card__image">'
-                   . '<img src="' . esc_url( $thumb ) . '" alt="' . esc_attr( $item['title_en'] ?? '' ) . '" loading="lazy">'
-                   . '</div>';
-        }
+        $html .= '<div class="iri-similar-card__image">'
+               . '<img src="' . esc_url( $thumb ) . '" alt="' . esc_attr( $item['title_en'] ?? '' ) . '" loading="lazy">'
+               . '</div>';
 
         $html .= '<div class="iri-similar-card__body">';
         $html .= '<div class="iri-similar-card__price">' . esc_html( $item['price_jpy_display'] ?? '' ) . '</div>';
