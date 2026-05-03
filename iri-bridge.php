@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 1.7.0
+ * Version: 1.9.0
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -477,6 +477,23 @@ function iri_resolve_field( $field, $listing ) {
         return iri_build_gallery_html( $listing );
     }
 
+    // Zoning suitability badge — coloured circle + label based on zoning_score
+    // Usage: place {iri__zoning_badge} in a Bricks HTML element
+    // CSS classes: .iri-zoning-badge  +  .iri-zoning-green / .iri-zoning-yellow / .iri-zoning-grey
+    // Score:  5–6 → green (high suitability)
+    //         2–4 → yellow (mixed)
+    //         0–1 → grey (restricted)
+    //         NULL → grey (unknown)
+    if ( $field === '_zoning_badge' ) {
+        return iri_build_zoning_badge( $listing );
+    }
+
+    // Similar listings section — fetches from Worker and renders cards
+    // Usage: place {iri__similar_listings} in a Bricks HTML element
+    if ( $field === '_similar_listings' ) {
+        return iri_build_similar_listings_html( $listing );
+    }
+
     return $listing[ $field ] ?? '';
 }
 
@@ -525,6 +542,150 @@ function iri_build_gallery_html( $listing ) {
     return $html;
 }
 
+/**
+ * Build a zoning suitability badge: coloured circle + label.
+ * Drop {iri__zoning_badge} into any Bricks HTML element.
+ *
+ * Score thresholds:
+ *   5–6  → green   "High Suitability"
+ *   2–4  → yellow  "Mixed Zoning"
+ *   0–1  → grey    "Restricted"
+ *   NULL → grey    "Zoning Unknown"
+ *
+ * CSS to customise:
+ *   .iri-zoning-badge           — wrapper (flex row, gap, etc.)
+ *   .iri-zoning-badge__dot      — the circle
+ *   .iri-zoning-badge__label    — the text
+ *   .iri-zoning-green .iri-zoning-badge__dot  { background: #22c55e; }
+ *   .iri-zoning-yellow .iri-zoning-badge__dot { background: #eab308; }
+ *   .iri-zoning-grey .iri-zoning-badge__dot   { background: #9ca3af; }
+ */
+function iri_build_zoning_badge( $listing ) {
+    $score = isset( $listing['zoning_score'] ) && $listing['zoning_score'] !== ''
+             ? (int) $listing['zoning_score']
+             : null;
+
+    if ( $score === null ) {
+        $class = 'iri-zoning-grey';
+        $label = 'Zoning Unknown';
+    } elseif ( $score >= 5 ) {
+        $class = 'iri-zoning-green';
+        $label = 'High Suitability';
+    } elseif ( $score >= 2 ) {
+        $class = 'iri-zoning-yellow';
+        $label = 'Mixed Zoning';
+    } else {
+        $class = 'iri-zoning-grey';
+        $label = 'Restricted';
+    }
+
+    return '<span class="iri-zoning-badge ' . $class . '">'
+         . '<span class="iri-zoning-badge__dot"></span>'
+         . '<span class="iri-zoning-badge__label">' . esc_html( $label ) . '</span>'
+         . '</span>';
+}
+
+/**
+ * Fetch and render a "Similar Listings" card grid.
+ * Drop {iri__similar_listings} into any Bricks HTML element.
+ *
+ * Calls GET /listings/{id}/similar on the Worker (tiered proximity + ±20% price).
+ * Returns empty string if no similar listings found.
+ *
+ * CSS classes to style:
+ *   .iri-similar                  — section wrapper
+ *   .iri-similar__heading         — "Similar Properties" heading
+ *   .iri-similar__grid            — card grid (use CSS grid/flex)
+ *   .iri-similar-card             — individual card link
+ *   .iri-similar-card__image      — image wrapper
+ *   .iri-similar-card__body       — text content wrapper
+ *   .iri-similar-card__price      — price line
+ *   .iri-similar-card__title      — listing title
+ *   .iri-similar-card__meta       — specs line (sqm, build year, floor plan)
+ *   .iri-similar-card__distance   — distance badge (e.g. "3.2 km away")
+ */
+function iri_build_similar_listings_html( $listing ) {
+    $id = $listing['id'] ?? '';
+    if ( ! $id ) return '';
+
+    $response = wp_remote_get( IRI_WORKER_URL . '/listings/' . rawurlencode( $id ) . '/similar', [
+        'timeout' => 8,
+    ] );
+
+    if ( is_wp_error( $response ) ) return '';
+
+    $body = json_decode( wp_remote_retrieve_body( $response ), true );
+    $items = $body['listings'] ?? [];
+    if ( empty( $items ) ) return '';
+
+    $html = '<div class="iri-similar">';
+    $html .= '<h3 class="iri-similar__heading">Similar Properties</h3>';
+    $html .= '<div class="iri-similar__grid">';
+
+    foreach ( $items as $item ) {
+        $url = home_url( '/listing/' . esc_attr( $item['region'] ?? 'hokkaido' )
+             . '/' . esc_attr( $item['taxonomy_property_area'] ?? '' )
+             . '/' . esc_attr( $item['slug'] ?? '' ) . '/' );
+
+        // Thumbnail — prefer CF Images, fall back to raw
+        $thumb = '';
+        $cf    = $item['cf_images'] ?? '';
+        if ( $cf ) {
+            $img_id = explode( '|', $cf )[0];
+            $thumb  = 'https://imagedelivery.net/' . IRI_CF_ACCOUNT_HASH . '/' . $img_id . '/thumbnail';
+        } else {
+            $raw   = $item['images'] ?? '';
+            $parts = explode( '|', $raw );
+            $thumb = trim( $parts[0] ?? '' );
+        }
+
+        // Specs line
+        $meta_parts = [];
+        if ( ! empty( $item['building_area_sqm'] ) ) {
+            $meta_parts[] = number_format( $item['building_area_sqm'] ) . ' m²';
+        } elseif ( ! empty( $item['land_area_sqm'] ) ) {
+            $meta_parts[] = number_format( $item['land_area_sqm'] ) . ' m² land';
+        }
+        if ( ! empty( $item['build_year'] ) ) {
+            $meta_parts[] = 'Built ' . $item['build_year'];
+        }
+        if ( ! empty( $item['floor_plan_en'] ) ) {
+            $meta_parts[] = esc_html( $item['floor_plan_en'] );
+        }
+
+        // Distance badge
+        $distance_html = '';
+        if ( isset( $item['distance_km'] ) && $item['distance_km'] !== null ) {
+            $km = round( $item['distance_km'], 1 );
+            $distance_html = '<span class="iri-similar-card__distance">' . $km . ' km away</span>';
+        }
+
+        $html .= '<a class="iri-similar-card" href="' . esc_url( $url ) . '">';
+
+        if ( $thumb ) {
+            $html .= '<div class="iri-similar-card__image">'
+                   . '<img src="' . esc_url( $thumb ) . '" alt="' . esc_attr( $item['title_en'] ?? '' ) . '" loading="lazy">'
+                   . '</div>';
+        }
+
+        $html .= '<div class="iri-similar-card__body">';
+        $html .= '<div class="iri-similar-card__price">' . esc_html( $item['price_jpy_display'] ?? '' ) . '</div>';
+        $html .= '<div class="iri-similar-card__title">' . esc_html( $item['title_en'] ?? '' ) . '</div>';
+        if ( $meta_parts ) {
+            $html .= '<div class="iri-similar-card__meta">' . esc_html( implode( ' · ', $meta_parts ) ) . '</div>';
+        }
+        $html .= $distance_html;
+        $html .= '</div>'; // .iri-similar-card__body
+
+        $html .= '</a>'; // .iri-similar-card
+    }
+
+    $html .= '</div>'; // .iri-similar__grid
+    $html .= '</div>'; // .iri-similar
+
+    return $html;
+}
+
 // ── 2b. Admin debug footer (shows data state to logged-in admins only) ────────
 // Remove this block once you confirm data is flowing correctly.
 
@@ -545,6 +706,12 @@ function iri_debug_footer() {
         echo '<br>title: ' . esc_html( $iri_current_listing['title_en'] ?? 'n/a' );
         echo ' &nbsp;|&nbsp; price: ' . esc_html( $iri_current_listing['price_jpy_display'] ?? 'n/a' );
         echo ' &nbsp;|&nbsp; slug: ' . esc_html( $iri_current_listing['slug'] ?? 'n/a' );
+        $src_url = $iri_current_listing['source_url'] ?? '';
+        if ( $src_url ) {
+            echo ' &nbsp;|&nbsp; source: <a href="' . esc_url( $src_url ) . '" target="_blank" style="color:#7ab8f5;">' . esc_html( $src_url ) . '</a>';
+        } else {
+            echo ' &nbsp;|&nbsp; source: <em>n/a</em>';
+        }
     }
     echo '</div>';
 }
