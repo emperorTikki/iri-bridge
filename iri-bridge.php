@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 1.9.4
+ * Version: 1.9.5
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -977,23 +977,21 @@ function iri_card_shortcode( $atts ) {
     $area_raw = $l['taxonomy_property_area'] ?? '';
     $url      = home_url( "/listing/{$region}/{$area_raw}/{$slug}/" );
 
-    // Image: prefer Cloudflare Images thumbnail, fall back to raw scraped URL
+    // Image: prefer Cloudflare Images thumbnail, fall back to raw scraped URL, then no-photo placeholder
     $cf_ids = array_filter( explode( '|', $l['cf_images'] ?? '' ) );
     if ( $cf_ids ) {
         $img_url = 'https://imagedelivery.net/' . IRI_CF_ACCOUNT_HASH . '/' . reset( $cf_ids ) . '/thumbnail';
     } else {
-        $raw_parts = explode( '|', $l['images'] ?? '' );
-        $img_url   = trim( $raw_parts[0] ?? '' );
+        $raw_parts = array_filter( explode( '|', $l['images'] ?? '' ) );
+        $img_url   = $raw_parts ? trim( reset( $raw_parts ) ) : IRI_WORKER_URL . '/no-photo.png';
     }
 
     ob_start();
     ?>
     <a href="<?= esc_url( $url ) ?>" class="iri-card">
-        <?php if ( $img_url ) : ?>
         <div class="iri-card__image">
             <img src="<?= esc_url( $img_url ) ?>" alt="<?= $title ?>" loading="lazy">
         </div>
-        <?php endif; ?>
         <div class="iri-card__body">
             <h3 class="iri-card__title"><?= $title ?></h3>
             <?php if ( $price ) : ?>
