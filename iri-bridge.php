@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 1.9.3
+ * Version: 1.9.4
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -213,16 +213,31 @@ function iri_yoast_breadcrumb_links( $links ) {
     global $iri_current_listing;
     if ( empty( $iri_current_listing ) ) return $links;
 
-    $area      = $iri_current_listing['taxonomy_property_area'] ?? '';
-    $area_label = ucwords( str_replace( '-', ' ', $area ) );
-    $title     = $iri_current_listing['title_en'] ?? 'Listing';
+    $area        = $iri_current_listing['taxonomy_property_area'] ?? '';
+    $area_group  = $iri_current_listing['area_group'] ?? '';
+    $area_label  = ucwords( str_replace( '-', ' ', $area ) );
+    $group_label = iri_area_group_label( $area_group );
+    $title       = $iri_current_listing['title_en'] ?? 'Listing';
 
     return [
-        [ 'url' => home_url( '/' ),                                          'text' => 'Home' ],
-        [ 'url' => home_url( '/listings/' ),                                 'text' => 'Listings' ],
-        [ 'url' => home_url( '/listings/?area=' . rawurlencode( $area ) ),   'text' => $area_label ],
-        [ 'url' => '',                                                        'text' => $title ],
+        [ 'url' => home_url( '/' ),                                                  'text' => 'Home' ],
+        [ 'url' => home_url( '/listings/' ),                                         'text' => 'Listings' ],
+        [ 'url' => home_url( '/listings/?group=' . rawurlencode( $area_group ) ),    'text' => $group_label ],
+        [ 'url' => home_url( '/listings/?area=' . rawurlencode( $area ) ),           'text' => $area_label ],
+        [ 'url' => '',                                                                'text' => $title ],
     ];
+}
+
+function iri_area_group_label( $slug ) {
+    $map = [
+        'asahikawa'             => 'Asahikawa',
+        'daisetsuzan-foothills' => 'Daisetsuzan Foothills',
+        'furano-basin'          => 'Furano Basin',
+        'central-rice-belt'     => 'Central Rice Belt',
+        'northern-corridor'     => 'Northern Corridor',
+        'western-coast'         => 'Western Coast',
+    ];
+    return $map[ $slug ] ?? ucwords( str_replace( '-', ' ', $slug ) );
 }
 
 // ── 2b. Archive output buffer ─────────────────────────────────────────────────
