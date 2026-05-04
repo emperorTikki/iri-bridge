@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 1.9.5
+ * Version: 1.9.6
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -636,16 +636,16 @@ function iri_build_zoning_badge( $listing ) {
  * Returns empty string if no similar listings found.
  *
  * CSS classes to style:
- *   .iri-similar                  — section wrapper
- *   .iri-similar__heading         — "Similar Properties" heading
- *   .iri-similar__grid            — card grid (use CSS grid/flex)
- *   .iri-similar-card             — individual card link
- *   .iri-similar-card__image      — image wrapper
- *   .iri-similar-card__body       — text content wrapper
- *   .iri-similar-card__price      — price line
- *   .iri-similar-card__title      — listing title
- *   .iri-similar-card__meta       — specs line (sqm, build year, floor plan)
- *   .iri-similar-card__distance   — distance badge (e.g. "3.2 km away")
+ *   .iri-similar                — section wrapper
+ *   .iri-similar__heading       — "Similar Properties" heading
+ *   .iri-similar__grid          — card grid wrapper
+ *   .iri-card                   — individual card (same as [iri_cards] — shares CSS)
+ *   .iri-card__image            — image wrapper
+ *   .iri-card__body             — text content wrapper
+ *   .iri-card__title            — listing title <h3>
+ *   .iri-card__price            — price <p>
+ *   .iri-card__meta             — specs line (sqm · build year · floor plan) <p>
+ *   .iri-similar-card__distance — distance badge unique to similar listings (e.g. "3.2 km away")
  */
 function iri_build_similar_listings_html( $listing ) {
     $id = $listing['id'] ?? '';
@@ -702,22 +702,24 @@ function iri_build_similar_listings_html( $listing ) {
             $distance_html = '<span class="iri-similar-card__distance">' . $km . ' km away</span>';
         }
 
-        $html .= '<a class="iri-similar-card" href="' . esc_url( $url ) . '">';
+        $html .= '<a class="iri-card" href="' . esc_url( $url ) . '">';
 
-        $html .= '<div class="iri-similar-card__image">'
+        $html .= '<div class="iri-card__image">'
                . '<img src="' . esc_url( $thumb ) . '" alt="' . esc_attr( $item['title_en'] ?? '' ) . '" loading="lazy">'
                . '</div>';
 
-        $html .= '<div class="iri-similar-card__body">';
-        $html .= '<div class="iri-similar-card__price">' . esc_html( $item['price_jpy_display'] ?? '' ) . '</div>';
-        $html .= '<div class="iri-similar-card__title">' . esc_html( $item['title_en'] ?? '' ) . '</div>';
+        $html .= '<div class="iri-card__body">';
+        $html .= '<h3 class="iri-card__title">' . esc_html( $item['title_en'] ?? '' ) . '</h3>';
+        if ( ! empty( $item['price_jpy_display'] ) ) {
+            $html .= '<p class="iri-card__price">' . esc_html( $item['price_jpy_display'] ) . '</p>';
+        }
         if ( $meta_parts ) {
-            $html .= '<div class="iri-similar-card__meta">' . esc_html( implode( ' · ', $meta_parts ) ) . '</div>';
+            $html .= '<p class="iri-card__meta">' . esc_html( implode( ' · ', $meta_parts ) ) . '</p>';
         }
         $html .= $distance_html;
-        $html .= '</div>'; // .iri-similar-card__body
+        $html .= '</div>'; // .iri-card__body
 
-        $html .= '</a>'; // .iri-similar-card
+        $html .= '</a>'; // .iri-card
     }
 
     $html .= '</div>'; // .iri-similar__grid
