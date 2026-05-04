@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 1.9.2
+ * Version: 1.9.3
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -199,6 +199,30 @@ function iri_output_schema_jsonld() {
     echo '<script type="application/ld+json">' . "\n";
     echo wp_json_encode( $schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT );
     echo "\n</script>\n";
+}
+
+// ── 2a. Yoast breadcrumb — listing pages ──────────────────────────────────────
+// Replaces Yoast's default breadcrumb with listing-specific crumbs on single
+// listing pages. Controls both the visual [wpseo_breadcrumb] output AND the
+// Schema.org BreadcrumbList JSON-LD that Yoast generates automatically.
+//
+// Output: Home → Listings → [Area] → [Property Title]
+
+add_filter( 'wpseo_breadcrumb_links', 'iri_yoast_breadcrumb_links' );
+function iri_yoast_breadcrumb_links( $links ) {
+    global $iri_current_listing;
+    if ( empty( $iri_current_listing ) ) return $links;
+
+    $area      = $iri_current_listing['taxonomy_property_area'] ?? '';
+    $area_label = ucwords( str_replace( '-', ' ', $area ) );
+    $title     = $iri_current_listing['title_en'] ?? 'Listing';
+
+    return [
+        [ 'url' => home_url( '/' ),                                          'text' => 'Home' ],
+        [ 'url' => home_url( '/listings/' ),                                 'text' => 'Listings' ],
+        [ 'url' => home_url( '/listings/?area=' . rawurlencode( $area ) ),   'text' => $area_label ],
+        [ 'url' => '',                                                        'text' => $title ],
+    ];
 }
 
 // ── 2b. Archive output buffer ─────────────────────────────────────────────────
