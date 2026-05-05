@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 2.0.0
+ * Version: 2.1.0
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -195,6 +195,66 @@ function iri_output_schema_jsonld() {
             'unitCode' => 'MTK',
         ];
     }
+
+    echo '<script type="application/ld+json">' . "\n";
+    echo wp_json_encode( $schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT );
+    echo "\n</script>\n";
+}
+
+// ── 2a-2. Schema.org JSON-LD for archive page — ItemList / SummaryList carousel ─
+// Outputs a RealEstateListing ItemList in <head> on the /listings/ archive page.
+// Fetches up to 50 listings server-side (cached 5 min) so crawlers see the data
+// without executing JS. Google uses this for rich carousel results.
+
+add_action( 'wp_head', 'iri_output_archive_schema_jsonld' );
+function iri_output_archive_schema_jsonld() {
+    if ( ! is_post_type_archive( 'listing' ) ) return;
+
+    $data     = iri_fetch_listings( [ 'limit' => 50 ] );
+    $listings = $data['listings'] ?? [];
+    if ( empty( $listings ) ) return;
+
+    $items = [];
+    foreach ( $listings as $i => $l ) {
+        $region = $l['region'] ?? 'hokkaido';
+        $area   = $l['taxonomy_property_area'] ?? '';
+        $slug   = $l['slug'] ?? '';
+        $url    = home_url( "/listing/{$region}/{$area}/{$slug}/" );
+
+        $item = [
+            '@type' => 'RealEstateListing',
+            'name'  => $l['title_en'] ?? '',
+            'url'   => $url,
+        ];
+
+        if ( ! empty( $l['price_jpy'] ) ) {
+            $item['offers'] = [
+                '@type'         => 'Offer',
+                'price'         => (int) $l['price_jpy'],
+                'priceCurrency' => 'JPY',
+            ];
+        }
+
+        $addr = [ '@type' => 'PostalAddress', 'addressRegion' => 'Hokkaido', 'addressCountry' => 'JP' ];
+        if ( ! empty( $l['address_en'] ) )   $addr['streetAddress']   = $l['address_en'];
+        if ( ! empty( $l['municipality'] ) ) $addr['addressLocality'] = $l['municipality'];
+        $item['address'] = $addr;
+
+        $items[] = [
+            '@type'    => 'ListItem',
+            'position' => $i + 1,
+            'item'     => $item,
+        ];
+    }
+
+    $schema = [
+        '@context'        => 'https://schema.org',
+        '@type'           => 'ItemList',
+        'name'            => 'Real Estate Listings — Hokkaido',
+        'description'     => 'Properties for sale in Hokkaido, Japan',
+        'url'             => home_url( '/listings/' ),
+        'itemListElement' => $items,
+    ];
 
     echo '<script type="application/ld+json">' . "\n";
     echo wp_json_encode( $schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT );
