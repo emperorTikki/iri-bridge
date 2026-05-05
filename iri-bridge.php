@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 2.1.0
+ * Version: 2.2.0
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -109,40 +109,25 @@ function iri_output_schema_jsonld() {
     global $iri_current_listing;
     if ( empty( $iri_current_listing ) ) return;
 
-    $l = $iri_current_listing;
+    $l      = $iri_current_listing;
+    $region = $l['region'] ?? 'hokkaido';
+    $area   = $l['taxonomy_property_area'] ?? '';
+    $slug   = $l['slug'] ?? '';
+    $url    = home_url( "/listing/{$region}/{$area}/{$slug}/" );
 
-    // Map property type to the most specific Schema.org type
-    $prop_type = strtolower( $l['property_type_en'] ?? '' );
-    if ( str_contains( $prop_type, 'land' ) ) {
-        $schema_type = 'LandOrCottage';
-    } elseif ( str_contains( $prop_type, 'house' ) ) {
-        $schema_type = 'SingleFamilyResidence';
-    } elseif ( str_contains( $prop_type, 'condo' ) || str_contains( $prop_type, 'apartment' ) ) {
-        $schema_type = 'Apartment';
-    } elseif ( str_contains( $prop_type, 'building' ) ) {
-        $schema_type = 'Accommodation';
-    } else {
-        $schema_type = 'RealEstateListing';
-    }
-
-    $region  = $l['region'] ?? 'hokkaido';
-    $area    = $l['taxonomy_property_area'] ?? '';
-    $slug    = $l['slug'] ?? '';
-    $url     = home_url( "/listing/{$region}/{$area}/{$slug}/" );
-
-    // First image (prefer Cloudflare full variant)
+    // First image — prefer Cloudflare fullsize, fall back to raw scraped URL
     $cf_ids    = array_filter( explode( '|', $l['cf_images'] ?? '' ) );
     $image_url = '';
     if ( $cf_ids ) {
         $image_url = 'https://imagedelivery.net/' . IRI_CF_ACCOUNT_HASH . '/' . reset( $cf_ids ) . '/fullsize';
-    } elseif ( $l['images'] ?? '' ) {
+    } elseif ( ! empty( $l['images'] ) ) {
         $raw       = explode( '|', $l['images'] );
         $image_url = trim( $raw[0] ?? '' );
     }
 
     $schema = [
         '@context' => 'https://schema.org',
-        '@type'    => $schema_type,
+        '@type'    => 'RealEstateListing',
         'name'     => $l['title_en'] ?? '',
         'url'      => $url,
     ];
@@ -151,7 +136,6 @@ function iri_output_schema_jsonld() {
     if ( $image_url )                       $schema['image']       = $image_url;
     if ( ! empty( $l['last_updated'] ) )    $schema['datePosted']  = $l['last_updated'];
 
-    // Price
     if ( ! empty( $l['price_jpy'] ) ) {
         $schema['offers'] = [
             '@type'         => 'Offer',
@@ -161,13 +145,11 @@ function iri_output_schema_jsonld() {
         ];
     }
 
-    // Address
     $addr = [ '@type' => 'PostalAddress', 'addressRegion' => 'Hokkaido', 'addressCountry' => 'JP' ];
     if ( ! empty( $l['address_en'] ) )   $addr['streetAddress']   = $l['address_en'];
     if ( ! empty( $l['municipality'] ) ) $addr['addressLocality'] = $l['municipality'];
     $schema['address'] = $addr;
 
-    // Geo coordinates
     if ( ! empty( $l['lat'] ) && ! empty( $l['lng'] ) ) {
         $schema['geo'] = [
             '@type'     => 'GeoCoordinates',
@@ -176,7 +158,6 @@ function iri_output_schema_jsonld() {
         ];
     }
 
-    // Building-specific fields
     if ( ! empty( $l['building_area_sqm'] ) ) {
         $schema['floorSize'] = [
             '@type'    => 'QuantitativeValue',
@@ -184,17 +165,8 @@ function iri_output_schema_jsonld() {
             'unitCode' => 'MTK',
         ];
     }
-    if ( ! empty( $l['floor_plan_en'] ) ) $schema['numberOfRooms'] = $l['floor_plan_en'];
-    if ( ! empty( $l['build_year'] ) )    $schema['yearBuilt']     = (int) $l['build_year'];
 
-    // Land area
-    if ( ! empty( $l['land_area_sqm'] ) ) {
-        $schema['landSize'] = [
-            '@type'    => 'QuantitativeValue',
-            'value'    => (float) $l['land_area_sqm'],
-            'unitCode' => 'MTK',
-        ];
-    }
+    if ( ! empty( $l['floor_plan_en'] ) ) $schema['numberOfRooms'] = $l['floor_plan_en'];
 
     echo '<script type="application/ld+json">' . "\n";
     echo wp_json_encode( $schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT );
