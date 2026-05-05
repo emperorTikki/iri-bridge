@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 1.9.6
+ * Version: 1.9.7
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -681,18 +681,29 @@ function iri_build_similar_listings_html( $listing ) {
             $thumb = $parts ? trim( reset( $parts ) ) : IRI_WORKER_URL . '/no-photo.png';
         }
 
-        // Specs line
-        $meta_parts = [];
+        // Specs — build individual .iri-spec chips (matches archive card structure)
+        $specs_html = '';
+        if ( ! empty( $item['floor_plan_en'] ) ) {
+            $specs_html .= '<span class="iri-spec">' . esc_html( $item['floor_plan_en'] ) . '</span>';
+        }
         if ( ! empty( $item['building_area_sqm'] ) ) {
-            $meta_parts[] = number_format( $item['building_area_sqm'] ) . ' m²';
+            $specs_html .= '<span class="iri-spec">' . number_format( $item['building_area_sqm'] ) . ' m²</span>';
         } elseif ( ! empty( $item['land_area_sqm'] ) ) {
-            $meta_parts[] = number_format( $item['land_area_sqm'] ) . ' m² land';
+            $specs_html .= '<span class="iri-spec">' . number_format( $item['land_area_sqm'] ) . ' m² land</span>';
         }
         if ( ! empty( $item['build_year'] ) ) {
-            $meta_parts[] = 'Built ' . $item['build_year'];
+            $specs_html .= '<span class="iri-spec">Built ' . esc_html( $item['build_year'] ) . '</span>';
         }
-        if ( ! empty( $item['floor_plan_en'] ) ) {
-            $meta_parts[] = esc_html( $item['floor_plan_en'] );
+
+        // STR zoning badge as a spec chip
+        $score = isset( $item['zoning_score'] ) && $item['zoning_score'] !== '' ? (int) $item['zoning_score'] : null;
+        if ( $score !== null ) {
+            $zc = $score >= 5 ? 'iri-zoning-green' : ( $score >= 2 ? 'iri-zoning-yellow' : 'iri-zoning-grey' );
+            $specs_html .= '<span class="iri-spec">'
+                . '<span class="iri-zoning-badge iri-zoning-compact ' . $zc . '">'
+                . '<span class="iri-zoning-badge__label">STR</span>'
+                . '<span class="iri-zoning-badge__dot"></span>'
+                . '</span></span>';
         }
 
         // Distance badge
@@ -713,8 +724,8 @@ function iri_build_similar_listings_html( $listing ) {
         if ( ! empty( $item['price_jpy_display'] ) ) {
             $html .= '<p class="iri-card__price">' . esc_html( $item['price_jpy_display'] ) . '</p>';
         }
-        if ( $meta_parts ) {
-            $html .= '<p class="iri-card__meta">' . esc_html( implode( ' · ', $meta_parts ) ) . '</p>';
+        if ( $specs_html ) {
+            $html .= '<div class="iri-card__specs">' . $specs_html . '</div>';
         }
         $html .= $distance_html;
         $html .= '</div>'; // .iri-card__body
