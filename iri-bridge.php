@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 1.9.7
+ * Version: 1.9.8
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -638,7 +638,7 @@ function iri_build_zoning_badge( $listing ) {
  * CSS classes to style:
  *   .iri-similar                — section wrapper
  *   .iri-similar__heading       — "Similar Properties" heading
- *   .iri-similar__grid          — card grid wrapper
+ *   .iri-similar__grid.iri-card-grid — card grid wrapper (shares CSS with archive grid)
  *   .iri-card                   — individual card (same as [iri_cards] — shares CSS)
  *   .iri-card__image            — image wrapper
  *   .iri-card__body             — text content wrapper
@@ -663,7 +663,7 @@ function iri_build_similar_listings_html( $listing ) {
 
     $html = '<div class="iri-similar">';
     $html .= '<h3 class="iri-similar__heading">Similar Properties</h3>';
-    $html .= '<div class="iri-similar__grid">';
+    $html .= '<div class="iri-similar__grid iri-card-grid">';
 
     foreach ( $items as $item ) {
         $url = home_url( '/listing/' . esc_attr( $item['region'] ?? 'hokkaido' )
