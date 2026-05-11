@@ -338,13 +338,16 @@ function iri_body_classes( $classes ) {
     global $iri_current_listing;
     if ( empty( $iri_current_listing ) ) return $classes;
 
-    $type = strtolower( $iri_current_listing['property_type_en'] ?? '' );
+    $type   = strtolower( $iri_current_listing['property_type_en'] ?? '' );
+    $status = $iri_current_listing['status'] ?? 'active';
 
-    if ( str_contains( $type, 'land' ) ) {
-        $classes[] = 'iri-type-land';
-    } else {
-        $classes[] = 'iri-type-property';
-    }
+    $classes[] = str_contains( $type, 'land' ) ? 'iri-type-land' : 'iri-type-property';
+
+    $classes[] = match ( $status ) {
+        'sold'           => 'iri-status-sold',
+        'under_contract' => 'iri-status-under-contract',
+        default          => 'iri-status-active',
+    };
 
     return $classes;
 }
@@ -563,6 +566,14 @@ function iri_resolve_field( $field, $listing ) {
         return iri_build_zoning_badge( $listing );
     }
 
+    // Status badge — shows SOLD or UNDER CONTRACT banner; empty for active listings.
+    // Usage: place {iri__status_badge} in a Bricks HTML element (e.g. above the title).
+    // Body classes iri-status-sold / iri-status-under-contract / iri-status-active are also
+    // available for CSS-based show/hide of other Bricks elements.
+    if ( $field === '_status_badge' ) {
+        return iri_build_status_badge( $listing );
+    }
+
     // Similar listings section — fetches from Worker and renders cards
     // Usage: place {iri__similar_listings} in a Bricks HTML element
     if ( $field === '_similar_listings' ) {
@@ -658,6 +669,33 @@ function iri_build_zoning_badge( $listing ) {
          . '<span class="iri-zoning-badge__dot"></span>'
          . '<span class="iri-zoning-badge__label">' . esc_html( $label ) . '</span>'
          . '</span>';
+}
+
+/**
+ * Build a status badge for sold / under-contract listings.
+ * Drop {iri__status_badge} into any Bricks HTML element (e.g. above the price/title).
+ * Returns empty string for active listings — place it freely without extra conditions.
+ *
+ * CSS classes:
+ *   .iri-status-badge                    — base wrapper
+ *   .iri-status-badge--sold              — dark background (sold)
+ *   .iri-status-badge--contract          — amber background (under contract)
+ *
+ * Body classes for CSS-based Bricks element show/hide:
+ *   .iri-status-active                   — listing is active
+ *   .iri-status-sold                     — listing is sold
+ *   .iri-status-under-contract           — listing is under contract
+ */
+function iri_build_status_badge( $listing ) {
+    $status = $listing['status'] ?? 'active';
+
+    if ( $status === 'sold' ) {
+        return '<span class="iri-status-badge iri-status-badge--sold">Sold</span>';
+    }
+    if ( $status === 'under_contract' ) {
+        return '<span class="iri-status-badge iri-status-badge--contract">Under Contract</span>';
+    }
+    return '';
 }
 
 /**
