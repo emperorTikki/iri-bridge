@@ -12,6 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 define( 'IRI_WORKER_URL',      'https://asahirealestatelistings.frosty-poetry-ee8c.workers.dev' );
+define( 'IRI_API_SECRET',      '0b95289f2e8607b8c57a8d158f834cb5b1bbc6d830833b2a874f097a80a34424' );
 define( 'IRI_CACHE_TTL',       300 );                    // seconds to cache API responses (5 min)
 define( 'IRI_CF_ACCOUNT_HASH', 'yYahxCzaa87zUnivVan2mg' ); // Cloudflare Images account hash
 define( 'IRI_MAPS_KEY',        'YOUR_GOOGLE_MAPS_KEY' );  // Google Maps JavaScript API key (browser key, restricted to your domain)
@@ -808,34 +809,100 @@ function iri_build_similar_listings_html( $listing ) {
     return $html;
 }
 
-// ── 2b. Admin debug footer (shows data state to logged-in admins only) ────────
-// Remove this block once you confirm data is flowing correctly.
+// ── 2b. Admin toolbar (single listing pages, manage_options only) ─────────────
 
-add_action( 'wp_footer', 'iri_debug_footer' );
-function iri_debug_footer() {
+add_action( 'wp_footer', 'iri_admin_toolbar' );
+function iri_admin_toolbar() {
     if ( ! current_user_can( 'manage_options' ) ) return;
     if ( ! get_query_var( 'iri_slug' ) && ! is_singular( 'listing' ) ) return;
 
     global $iri_current_listing;
-    $loaded = ! empty( $iri_current_listing );
-    echo '<div id="iri-debug" style="position:fixed;bottom:0;left:0;right:0;background:#1d2327;color:#f0f0f1;padding:10px 16px;font:12px/1.6 monospace;z-index:999999;max-height:220px;overflow:auto;">';
-    echo '<strong style="color:#f6a800;">IRI Debug</strong> &nbsp;|&nbsp; ';
-    echo 'iri_slug: <em>' . esc_html( get_query_var( 'iri_slug' ) ?: '(empty)' ) . '</em> &nbsp;|&nbsp; ';
-    echo 'iri_region: <em>' . esc_html( get_query_var( 'iri_region' ) ?: '(empty)' ) . '</em> &nbsp;|&nbsp; ';
-    echo 'iri_area: <em>' . esc_html( get_query_var( 'iri_area' ) ?: '(empty)' ) . '</em> &nbsp;|&nbsp; ';
-    echo '$iri_current_listing: <strong style="color:' . ( $loaded ? '#5cb85c' : '#d9534f' ) . '">' . ( $loaded ? 'SET ✓' : 'EMPTY ✗' ) . '</strong>';
-    if ( $loaded ) {
-        echo '<br>title: ' . esc_html( $iri_current_listing['title_en'] ?? 'n/a' );
-        echo ' &nbsp;|&nbsp; price: ' . esc_html( $iri_current_listing['price_jpy_display'] ?? 'n/a' );
-        echo ' &nbsp;|&nbsp; slug: ' . esc_html( $iri_current_listing['slug'] ?? 'n/a' );
-        $src_url = $iri_current_listing['source_url'] ?? '';
-        if ( $src_url ) {
-            echo ' &nbsp;|&nbsp; source: <a href="' . esc_url( $src_url ) . '" target="_blank" style="color:#7ab8f5;">' . esc_html( $src_url ) . '</a>';
-        } else {
-            echo ' &nbsp;|&nbsp; source: <em>n/a</em>';
-        }
+    if ( empty( $iri_current_listing ) ) return;
+
+    $id       = esc_js( $iri_current_listing['id'] ?? '' );
+    $slug     = esc_html( $iri_current_listing['slug'] ?? '' );
+    $src_url  = esc_url( $iri_current_listing['source_url'] ?? '' );
+    $featured = ! empty( $iri_current_listing['featured'] ) ? 1 : 0;
+    $nonce    = wp_create_nonce( 'iri_toggle_featured' );
+    $star     = $featured ? '★' : '☆';
+    $star_lbl = $featured ? 'Featured' : 'Feature';
+    $star_col = $featured ? '#f6a800' : '#a0a0a0';
+    ?>
+    <div id="iri-admin-bar" style="position:fixed;bottom:0;left:0;right:0;background:#1d2327;color:#f0f0f1;padding:8px 16px;font:12px/1.8 monospace;z-index:999999;display:flex;align-items:center;gap:16px;">
+        <strong style="color:#f6a800;">IRI Admin</strong>
+        <span><?php echo esc_html( $id ); ?></span>
+        <?php if ( $slug ) : ?>
+            <span style="color:#a0a0a0;"><?php echo esc_html( $slug ); ?></span>
+        <?php endif; ?>
+        <?php if ( $src_url ) : ?>
+            <a href="<?php echo $src_url; ?>" target="_blank" style="color:#7ab8f5;">source ↗</a>
+        <?php endif; ?>
+        <button id="iri-featured-btn"
+            onclick="iriToggleFeatured(this)"
+            data-id="<?php echo esc_attr( $id ); ?>"
+            data-featured="<?php echo $featured; ?>"
+            data-nonce="<?php echo esc_attr( $nonce ); ?>"
+            style="background:none;border:1px solid #555;border-radius:3px;color:<?php echo $star_col; ?>;cursor:pointer;font:12px monospace;padding:2px 10px;">
+            <?php echo $star; ?> <?php echo $star_lbl; ?>
+        </button>
+        <span id="iri-featured-msg" style="color:#5cb85c;display:none;">Saved</span>
+    </div>
+    <script>
+    function iriToggleFeatured(btn) {
+        var newVal = btn.dataset.featured === '1' ? 0 : 1;
+        btn.disabled = true;
+        fetch('<?php echo admin_url( 'admin-ajax.php' ); ?>', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'action=iri_toggle_featured&id=' + btn.dataset.id + '&featured=' + newVal + '&nonce=' + btn.dataset.nonce,
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                btn.dataset.featured = String(newVal);
+                btn.style.color      = newVal ? '#f6a800' : '#a0a0a0';
+                btn.innerHTML        = (newVal ? '★ Featured' : '☆ Feature');
+                var msg = document.getElementById('iri-featured-msg');
+                msg.style.display = 'inline';
+                setTimeout(function() { msg.style.display = 'none'; }, 2000);
+            }
+            btn.disabled = false;
+        })
+        .catch(function() { btn.disabled = false; });
     }
-    echo '</div>';
+    </script>
+    <?php
+}
+
+// ── 2c. AJAX: toggle featured ─────────────────────────────────────────────────
+
+add_action( 'wp_ajax_iri_toggle_featured', 'iri_ajax_toggle_featured' );
+function iri_ajax_toggle_featured() {
+    if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error( 'Forbidden', 403 );
+    if ( ! check_ajax_referer( 'iri_toggle_featured', 'nonce', false ) ) wp_send_json_error( 'Bad nonce', 403 );
+
+    $id       = sanitize_text_field( $_POST['id'] ?? '' );
+    $featured = intval( $_POST['featured'] ?? 0 ) ? 1 : 0;
+
+    if ( ! $id ) wp_send_json_error( 'Missing id', 400 );
+
+    $response = wp_remote_post( IRI_WORKER_URL . '/listings/upsert', [
+        'timeout' => 10,
+        'headers' => [
+            'Content-Type'  => 'application/json',
+            'Authorization' => 'Bearer ' . IRI_API_SECRET,
+        ],
+        'body' => wp_json_encode( [ 'id' => $id, 'featured' => $featured ] ),
+    ] );
+
+    if ( is_wp_error( $response ) ) wp_send_json_error( $response->get_error_message(), 502 );
+
+    $code = wp_remote_retrieve_response_code( $response );
+    if ( $code !== 200 ) wp_send_json_error( 'Worker returned ' . $code, 502 );
+
+    iri_flush_listing_cache( get_query_var( 'iri_slug' ) );
+
+    wp_send_json_success( [ 'featured' => $featured ] );
 }
 
 // ── 3. API helpers ────────────────────────────────────────────────────────────
