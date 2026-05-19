@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 4.2.1
+ * Version: 4.2.2
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -983,9 +983,11 @@ function iri_register_dynamic_tags( $tags ) {
         'IRI: Last Updated'              => 'last_updated',
         'IRI: Images'                    => 'images',
         'IRI: Image Count'               => 'image_count',
-        'IRI: Airport Drive (mins)'      => 'airport_drive_mins',
-        'IRI: Airport Drive Text'        => 'airport_drive_text',
-        'IRI: Airport Distance (km)'     => 'airport_distance_km',
+        'IRI: Airport Drive (mins)'              => 'airport_drive_mins',
+        'IRI: Airport Drive Text'                => 'airport_drive_text',
+        'IRI: Airport Distance (km)'             => 'airport_distance_km',
+        'IRI: Asahikawa Station (mins)'          => 'station_asahikawa_mins',
+        'IRI: Asahikawa Station Distance (km)'   => 'station_asahikawa_km',
         'IRI: Slug'                      => 'slug',
         'IRI: Region'                    => 'region',
         'IRI: Area Taxonomy'             => 'taxonomy_property_area',
