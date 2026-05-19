@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 2.4.0
+ * Version: 4.2.0
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
