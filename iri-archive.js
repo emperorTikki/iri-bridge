@@ -30,7 +30,7 @@
   const CF_HASH = CFG.cfHash   || '';
   const LIMIT   = CFG.limit    || 500;
 
-  const PAGE_SIZE = 20;   // cards shown per "Load More" click
+  const PAGE_SIZE = 21;   // cards shown per "Load More" click (3-column grid — multiple of 3)
 
   let allListings     = [];   // full unfiltered dataset
   let currentFiltered = [];   // filtered/sorted result (full)
@@ -80,26 +80,37 @@
     return data.listings || [];
   }
 
+  async function fetchPage( limit ) {
+    const resp = await fetch( `${ WORKER }/listings?limit=${ limit }` );
+    if ( ! resp.ok ) throw new Error( `Worker HTTP ${ resp.status }` );
+    const data = await resp.json();
+    return data.listings || [];
+  }
+
   // ── Filter & sort ────────────────────────────────────────────────────────────
 
   function getControls() {
-    const minEl = document.getElementById( 'iri-price-min' );
-    const maxEl = document.getElementById( 'iri-price-max' );
+    const minEl   = document.getElementById( 'iri-price-min' );
+    const maxEl   = document.getElementById( 'iri-price-max' );
+    const areaRaw = document.getElementById( 'iri-filter-area' )?.value || '';
+    const isGroup = areaRaw.startsWith( 'group:' );
     return {
-      area     : document.getElementById( 'iri-filter-area' )?.value || '',
-      type     : document.getElementById( 'iri-filter-type' )?.value || '',
-      sort     : document.getElementById( 'iri-sort' )?.value        || 'recent',
-      priceMin : minEl ? parseInt( minEl.value ) : 0,
-      priceMax : maxEl ? parseInt( maxEl.value ) : Infinity,
-      priceAbsMax : maxEl ? parseInt( maxEl.max ) : Infinity,
+      area        : isGroup ? '' : areaRaw.replace( 'area:', '' ),
+      group       : isGroup ? areaRaw.replace( 'group:', '' ) : '',
+      type        : document.getElementById( 'iri-filter-type' )?.value || '',
+      sort        : document.getElementById( 'iri-sort' )?.value        || 'recent',
+      priceMin    : minEl ? parseInt( minEl.value ) : 0,
+      priceMax    : maxEl ? parseInt( maxEl.value ) : Infinity,
+      priceAbsMax : maxEl ? parseInt( maxEl.max )   : Infinity,
     };
   }
 
   function applyControls( listings ) {
-    const { area, type, sort, priceMin, priceMax, priceAbsMax } = getControls();
+    const { area, group, type, sort, priceMin, priceMax, priceAbsMax } = getControls();
     let out = [ ...listings ];
 
-    if ( area ) out = out.filter( l => l.taxonomy_property_area === area );
+    if ( group ) out = out.filter( l => l.area_group === group );
+    else if ( area ) out = out.filter( l => l.taxonomy_property_area === area );
 
     if ( type ) out = out.filter( l => ( l.taxonomy_property_type || '' ).toLowerCase() === type.toLowerCase() );
 
@@ -112,7 +123,7 @@
     if ( sort === 'price_asc'  ) out.sort( ( a, b ) => ( a.price_jpy || 0 ) - ( b.price_jpy || 0 ) );
     if ( sort === 'price_desc' ) out.sort( ( a, b ) => ( b.price_jpy || 0 ) - ( a.price_jpy || 0 ) );
     if ( sort === 'recent'     ) out.sort( ( a, b ) =>
-      new Date( b.last_updated || b.scraped_at || 0 ) - new Date( a.last_updated || a.scraped_at || 0 )
+      new Date( b.first_seen_at || b.active_at || b.scraped_at || 0 ) - new Date( a.first_seen_at || a.active_at || a.scraped_at || 0 )
     );
 
     return out;
@@ -121,10 +132,24 @@
   // ── Price slider ─────────────────────────────────────────────────────────────
 
   function fmtPrice( yen, isMax, absMax ) {
-    const label = yen >= 100000000
-      ? '¥' + ( yen / 100000000 ).toFixed( 1 ) + '億'
-      : '¥' + ( yen / 1000000 ).toFixed( 1 ) + 'M';
+    const label = '¥' + ( yen / 1000000 ).toFixed( 1 ) + 'M';
     return ( isMax && yen >= absMax ) ? label + '+' : label;
+  }
+
+  function updateSliderTrack() {
+    const minEl    = document.getElementById( 'iri-price-min' );
+    const maxEl    = document.getElementById( 'iri-price-max' );
+    const trackEl  = document.getElementById( 'iri-price-track' );
+    if ( ! minEl || ! maxEl || ! trackEl ) return;
+    const rMin   = parseInt( minEl.min );
+    const rMax   = parseInt( minEl.max );
+    const minPct = ( ( parseInt( minEl.value ) - rMin ) / ( rMax - rMin ) ) * 100;
+    const maxPct = ( ( parseInt( maxEl.value ) - rMin ) / ( rMax - rMin ) ) * 100;
+    trackEl.style.background = `linear-gradient(to right,
+      var(--iri-slider-inactive, #d1d5db) ${ minPct }%,
+      var(--iri-slider-active,   #22c55e) ${ minPct }%,
+      var(--iri-slider-active,   #22c55e) ${ maxPct }%,
+      var(--iri-slider-inactive, #d1d5db) ${ maxPct }%)`;
   }
 
   function updatePriceLabels() {
@@ -134,6 +159,7 @@
     const maxLabel   = document.getElementById( 'iri-price-max-label' );
     if ( minEl && minLabel ) minLabel.textContent = fmtPrice( parseInt( minEl.value ), false, 0 );
     if ( maxEl && maxLabel ) maxLabel.textContent = fmtPrice( parseInt( maxEl.value ), true, parseInt( maxEl.max ) );
+    updateSliderTrack();
   }
 
   function initPriceSlider( listings ) {
@@ -157,7 +183,19 @@
     minEl.value = dataMin;
     maxEl.value = dataMax;
 
+    // Inject custom track element once (sits behind both range inputs)
+    const slidersEl = minEl.closest( '.iri-price-sliders' ) || minEl.parentElement;
+    if ( slidersEl && ! document.getElementById( 'iri-price-track' ) ) {
+      const track = document.createElement( 'div' );
+      track.id = 'iri-price-track';
+      slidersEl.insertBefore( track, slidersEl.firstChild );
+    }
+
     updatePriceLabels();
+
+    // Only bind events once
+    if ( minEl.dataset.iriSliderBound ) return;
+    minEl.dataset.iriSliderBound = '1';
 
     minEl.addEventListener( 'input', () => {
       if ( parseInt( minEl.value ) > parseInt( maxEl.value ) ) minEl.value = maxEl.value;
@@ -173,16 +211,30 @@
 
   // ── Card rendering ───────────────────────────────────────────────────────────
 
+  function zoningBadge( score ) {
+    const cls = ( score >= 5 ) ? 'iri-zoning-green'
+              : ( score >= 2 ) ? 'iri-zoning-yellow'
+              :                  'iri-zoning-grey';
+    return `<span class="iri-zoning-badge iri-zoning-compact ${ cls }">` +
+             `<span class="iri-zoning-badge__label">STR</span>` +
+             `<span class="iri-zoning-badge__dot"></span>` +
+           `</span>`;
+  }
+
   function cardHTML( l ) {
     const land = isLand( l );
     const img  = imageUrl( l );
     const url  = listingUrl( l );
 
-    const imgBlock = img
-      ? `<div class="iri-card__image"><img src="${ esc( img ) }" alt="${ esc( l.title_en ) }" loading="lazy" itemprop="image"></div>`
-      : `<div class="iri-card__image iri-card__image--none"></div>`;
+    let statusBadge = '';
+    if ( l.status === 'sold' )           statusBadge = `<span class="iri-status-badge iri-status-badge--sold">Sold</span>`;
+    else if ( l.status === 'under_contract' ) statusBadge = `<span class="iri-status-badge iri-status-badge--contract">Under Contract</span>`;
 
-    // Specs row: land shows land area; non-land shows floor plan + building area + build year
+    const imgBlock = img
+      ? `<div class="iri-card__image">${ statusBadge }<img src="${ esc( img ) }" alt="${ esc( l.title_en ) }" loading="lazy" itemprop="image"></div>`
+      : `<div class="iri-card__image iri-card__image--none">${ statusBadge }</div>`;
+
+    // Specs row: land shows land area; non-land shows floor plan + building area + build year + STR badge
     let specs = '';
     if ( land ) {
       if ( l.land_area_sqm ) specs += `<span class="iri-spec">${ numFmt( l.land_area_sqm ) } m²</span>`;
@@ -190,6 +242,9 @@
       if ( l.floor_plan_en     ) specs += `<span class="iri-spec">${ esc( l.floor_plan_en ) }</span>`;
       if ( l.building_area_sqm ) specs += `<span class="iri-spec">${ numFmt( l.building_area_sqm ) } m²</span>`;
       if ( l.build_year        ) specs += `<span class="iri-spec">Built ${ esc( l.build_year ) }</span>`;
+    }
+    if ( l.zoning_score !== null && l.zoning_score !== undefined ) {
+      specs += `<span class="iri-spec">${ zoningBadge( l.zoning_score ) }</span>`;
     }
 
     // Schema.org type — mirrors what the PHP JSON-LD outputs for single listing pages
@@ -219,23 +274,57 @@
     </a>`;
   }
 
+  // Inject fade-in animation for new cards once
+  ( function injectLoadMoreCSS() {
+    if ( document.getElementById( 'iri-load-more-css' ) ) return;
+    const s = document.createElement( 'style' );
+    s.id = 'iri-load-more-css';
+    s.textContent = `
+      @keyframes iri-fade-up {
+        from { opacity: 0; transform: scale(0.98); }
+        to   { opacity: 1; transform: scale(1);    }
+      }
+      .iri-card--new {
+        animation: iri-fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+      .iri-card__image { position: relative; }
+      .iri-status-badge {
+        position: absolute; bottom: 0; left: 0; right: 0;
+        text-align: center; font-size: 0.72rem; font-weight: 700;
+        letter-spacing: 0.08em; text-transform: uppercase;
+        padding: 5px 0; z-index: 2; pointer-events: none;
+      }
+      .iri-status-badge--sold     { background: rgba(18,18,18,0.80); color: #fff; }
+      .iri-status-badge--contract { background: rgba(180,95,0,0.85);  color: #fff; }
+    `;
+    document.head.appendChild( s );
+  } )();
+
   function renderGrid( listings, append = false ) {
     const el = document.getElementById( 'iri-card-grid' );
     if ( ! el ) return;
 
-    const visible = listings.slice( 0, currentPage * PAGE_SIZE );
-    const total   = listings.length;
-    const showing = visible.length;
+    const prevCount = append ? ( currentPage - 1 ) * PAGE_SIZE : 0;
+    const visible   = listings.slice( 0, currentPage * PAGE_SIZE );
+    const newItems  = append ? listings.slice( prevCount, currentPage * PAGE_SIZE ) : visible;
+    const total     = listings.length;
+    const showing   = visible.length;
 
-    // Count display — "Showing 1–20 of 50 listings"
-    const showingEl = document.getElementById( 'iri-showing' );
-    if ( showingEl ) {
-      if ( total === 0 ) {
-        showingEl.textContent = 'No listings found';
-      } else {
-        showingEl.textContent = `Showing 1–${ showing } of ${ total } listing${ total !== 1 ? 's' : '' }`;
+    // Count display — updates ALL elements with id="iri-showing" or class="iri-showing"
+    // Template tokens: {to} = visible count, {total} = total filtered count
+    // Set your wording in Bricks, e.g. "Showing 1–{to} of {total} listings"
+    // Falls back to a default if the element is empty.
+    document.querySelectorAll( '#iri-showing, .iri-showing' ).forEach( el => {
+      if ( ! el.dataset.iriTemplate ) {
+        const raw = el.textContent.trim();
+        el.dataset.iriTemplate = raw || 'Showing 1–{to} of {total} listings';
       }
-    }
+      el.textContent = total === 0
+        ? 'No listings found'
+        : el.dataset.iriTemplate
+            .replace( '{to}',    showing )
+            .replace( '{total}', total );
+    } );
 
     // Load More button — hide when everything is visible
     const moreBtn = document.getElementById( 'iri-load-more' );
@@ -246,7 +335,27 @@
       return;
     }
 
-    el.innerHTML = visible.map( cardHTML ).join( '' );
+    if ( append ) {
+      // Append only new cards with staggered cascade animation (Option D)
+      newItems.forEach( ( l, i ) => {
+        const tmp = document.createElement( 'div' );
+        tmp.innerHTML = cardHTML( l );
+        const card = tmp.firstElementChild;
+        card.classList.add( 'iri-card--new' );
+        card.style.animationDelay = `${ Math.min( i, 6 ) * 80 }ms`; // 80ms stagger, capped at 480ms
+        el.appendChild( card );
+      } );
+    } else {
+      el.innerHTML = '';
+      visible.forEach( ( l, i ) => {
+        const tmp = document.createElement( 'div' );
+        tmp.innerHTML = cardHTML( l );
+        const card = tmp.firstElementChild;
+        card.classList.add( 'iri-card--new' );
+        card.style.animationDelay = `${ Math.min( i, 6 ) * 80 }ms`;
+        el.appendChild( card );
+      } );
+    }
   }
 
   // ── Google Map ───────────────────────────────────────────────────────────────
@@ -322,16 +431,30 @@
 
   // ── Populate filter dropdowns from live data ─────────────────────────────────
 
-  function populateFilters( listings ) {
-    // Area dropdown — unique areas sorted alphabetically
+  function populateFilters( listings, areaGroups ) {
+    // Area dropdown — grouped hierarchy, only showing areas with active listings
     const areaEl = document.getElementById( 'iri-filter-area' );
-    if ( areaEl && ! areaEl.dataset.iriPopulated ) {
-      const areas = [ ...new Set( listings.map( l => l.taxonomy_property_area ).filter( Boolean ) ) ].sort();
-      areas.forEach( a => {
-        const o = document.createElement( 'option' );
-        o.value       = a;
-        o.textContent = a.charAt( 0 ).toUpperCase() + a.slice( 1 ).replace( /-/g, ' ' );
-        areaEl.appendChild( o );
+    if ( areaEl && ! areaEl.dataset.iriPopulated && areaGroups ) {
+      // Build set of area slugs that have at least one listing
+      const activeAreas = new Set( listings.map( l => l.taxonomy_property_area ).filter( Boolean ) );
+
+      Object.entries( areaGroups ).forEach( ( [ groupSlug, group ] ) => {
+        const visibleAreas = group.areas.filter( a => activeAreas.has( a.slug ) );
+        if ( visibleAreas.length === 0 ) return; // skip group if no active listings
+
+        // Group-level selectable option — filters all areas in the group
+        const og = document.createElement( 'option' );
+        og.value       = 'group:' + groupSlug;
+        og.textContent = group.label;
+        areaEl.appendChild( og );
+
+        // Individual area options — indented under the group
+        visibleAreas.forEach( area => {
+          const o = document.createElement( 'option' );
+          o.value       = 'area:' + area.slug;
+          o.textContent = '   └ ' + area.label;
+          areaEl.appendChild( o );
+        } );
       } );
       areaEl.dataset.iriPopulated = '1';
     }
@@ -360,47 +483,109 @@
   }
 
   function loadMore() {
+    const prevPage = currentPage;
     currentPage++;
-    renderGrid( currentFiltered );
-    // scroll the new cards into view smoothly
-    document.getElementById( 'iri-load-more' )?.scrollIntoView( { behavior: 'smooth', block: 'center' } );
+    renderGrid( currentFiltered, true ); // append mode — only new cards added
+
+    // Scroll to first new card so user sees where new content begins
+    const el = document.getElementById( 'iri-card-grid' );
+    if ( el ) {
+      const allCards = el.querySelectorAll( '.iri-card' );
+      const firstNew = allCards[ prevPage * PAGE_SIZE ];
+      if ( firstNew ) {
+        // Position first new card at 60% down the viewport — keeps previous row visible above
+        const y = firstNew.getBoundingClientRect().top + window.scrollY - ( window.innerHeight * 0.6 );
+        window.scrollTo( { top: y, behavior: 'smooth' } );
+      }
+    }
+  }
+
+  // ── URL param helper ─────────────────────────────────────────────────────────
+
+  function applyUrlParams() {
+    const urlParams = new URLSearchParams( window.location.search );
+    const urlGroup  = urlParams.get( 'group' );
+    const urlArea   = urlParams.get( 'area' );
+    const areaEl    = document.getElementById( 'iri-filter-area' );
+    if ( areaEl ) {
+      if ( urlGroup ) areaEl.value = 'group:' + urlGroup;
+      else if ( urlArea ) areaEl.value = 'area:' + urlArea;
+    }
   }
 
   // ── Init ─────────────────────────────────────────────────────────────────────
+  // Two-phase load:
+  //   Phase 1 — fetch first PAGE_SIZE listings → render immediately (fast first paint)
+  //   Phase 2 — fetch all listings + area groups in background → update filters + grid
 
   async function init() {
     const gridEl = document.getElementById( 'iri-card-grid' );
     const mapEl  = document.getElementById( 'iri-map' );
-    if ( ! gridEl && ! mapEl ) return; // not on an archive page
+    if ( ! gridEl && ! mapEl ) return;
 
     if ( gridEl ) gridEl.innerHTML = '<p class="iri-loading">Loading listings…</p>';
 
+    // Bind controls early so they're ready the moment Phase 1 renders
+    [ 'iri-filter-area', 'iri-filter-type', 'iri-sort' ].forEach( id => {
+      document.getElementById( id )?.addEventListener( 'change', update );
+    } );
+    document.getElementById( 'iri-load-more' )?.addEventListener( 'click', loadMore );
+
+    // ── Phase 1: first page renders immediately ────────────────────────────────
     try {
-      allListings = await fetchAll();
+      allListings     = await fetchPage( PAGE_SIZE );
+      currentFiltered = applyControls( allListings );
+      initPriceSlider( allListings );
+      renderGrid( currentFiltered );
     } catch ( e ) {
-      console.error( 'IRI archive: failed to load listings', e );
+      console.error( 'IRI archive: phase 1 failed', e );
       if ( gridEl ) gridEl.innerHTML = '<p class="iri-no-results">Could not load listings. Please try again.</p>';
       return;
     }
 
-    currentFiltered = applyControls( allListings );
-    populateFilters( allListings );
-    initPriceSlider( allListings );
-    renderGrid( currentFiltered );
+    // Subtle banner while rest of data loads
+    const firstShowingEl = document.querySelector( '#iri-showing, .iri-showing' );
+    const bgBanner  = document.createElement( 'span' );
+    bgBanner.id          = 'iri-bg-loading';
+    bgBanner.textContent = ' · loading more…';
+    bgBanner.style.cssText = 'font-size:0.85em;opacity:0.55;';
+    if ( firstShowingEl ) firstShowingEl.appendChild( bgBanner );
 
-    // Map initialises if Google Maps is already loaded; otherwise iriMapReady() handles it
+    // ── Phase 2: full dataset + area groups in background ─────────────────────
+    let areaGroups = null;
+    try {
+      [ allListings, areaGroups ] = await Promise.all( [
+        fetchAll(),
+        fetch( WORKER + '/area-groups' ).then( r => r.json() ).then( d => d.groups ).catch( () => null ),
+      ] );
+    } catch ( e ) {
+      console.error( 'IRI archive: phase 2 failed', e );
+      bgBanner.remove();
+      return; // Phase 1 results still visible — graceful degradation
+    }
+
+    bgBanner.remove();
+
+    // Populate area filter dropdown + price slider with full data
+    populateFilters( allListings, areaGroups );
+    initPriceSlider( allListings );
+
+    // Apply URL params now that dropdown is populated
+    applyUrlParams();
+
+    // Recompute filtered set with full dataset
+    currentFiltered = applyControls( allListings );
+
+    // Re-render grid only if user is still on page 1 (hasn't paginated yet)
+    if ( currentPage === 1 ) {
+      renderGrid( currentFiltered );
+    }
+
+    // Map — full dataset
     if ( typeof google !== 'undefined' ) {
       initMap();
       renderMarkers( currentFiltered );
     }
-
-    // Bind filter and sort controls
-    [ 'iri-filter-area', 'iri-filter-type', 'iri-sort' ].forEach( id => {
-      document.getElementById( id )?.addEventListener( 'change', update );
-    } );
-
-    // Bind Load More button
-    document.getElementById( 'iri-load-more' )?.addEventListener( 'click', loadMore );
   }
 
   // Called by Google Maps API script when Maps is ready (callback=iriMapReady)
