@@ -132,7 +132,7 @@
   // ── Price slider ─────────────────────────────────────────────────────────────
 
   function fmtPrice( yen, isMax, absMax ) {
-    const label = '¥' + ( yen / 1000000 ).toFixed( 1 ) + 'M';
+    const label = '¥' + ( yen / 1000000 ).toFixed( 1 ) + 'm';
     return ( isMax && yen >= absMax ) ? label + '+' : label;
   }
 
