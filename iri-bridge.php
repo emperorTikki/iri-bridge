@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 4.2.2
+ * Version: 2.4.0
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -543,11 +543,15 @@ function iri_resolve_field( $field, $listing ) {
         $cf      = $listing['cf_images'] ?? '';
         $ids     = array_filter( explode( '|', $cf ) );
         $id      = $ids[ $index ] ?? '';
-        if ( ! $id ) {
-            // Only show no-photo placeholder for the first image slot
-            return $index === 0 ? IRI_WORKER_URL . '/no-photo.png' : '';
+        if ( $id ) {
+            return 'https://imagedelivery.net/' . IRI_CF_ACCOUNT_HASH . '/' . $id . '/' . $variant;
         }
-        return 'https://imagedelivery.net/' . IRI_CF_ACCOUNT_HASH . '/' . $id . '/' . $variant;
+        // Fallback to raw CDN URLs (e.g. Nifty/Suumo listings without CF Images yet)
+        $raw_parts = array_filter( explode( '|', $listing['images'] ?? '' ) );
+        $raw_url   = trim( array_values( $raw_parts )[ $index ] ?? '' );
+        if ( $raw_url ) return $raw_url;
+        // No image available — show placeholder only for slot 1
+        return $index === 0 ? IRI_WORKER_URL . '/no-photo.png' : '';
     }
 
     // Gallery HTML — full responsive gallery with lightbox-ready markup
@@ -983,11 +987,9 @@ function iri_register_dynamic_tags( $tags ) {
         'IRI: Last Updated'              => 'last_updated',
         'IRI: Images'                    => 'images',
         'IRI: Image Count'               => 'image_count',
-        'IRI: Airport Drive (mins)'              => 'airport_drive_mins',
-        'IRI: Airport Drive Text'                => 'airport_drive_text',
-        'IRI: Airport Distance (km)'             => 'airport_distance_km',
-        'IRI: Asahikawa Station (mins)'          => 'station_asahikawa_mins',
-        'IRI: Asahikawa Station Distance (km)'   => 'station_asahikawa_km',
+        'IRI: Airport Drive (mins)'      => 'airport_drive_mins',
+        'IRI: Airport Drive Text'        => 'airport_drive_text',
+        'IRI: Airport Distance (km)'     => 'airport_distance_km',
         'IRI: Slug'                      => 'slug',
         'IRI: Region'                    => 'region',
         'IRI: Area Taxonomy'             => 'taxonomy_property_area',
