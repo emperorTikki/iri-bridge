@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 2.4.0
+ * Version: 2.5.0
  * GitHub Plugin URI: emperorTikki/iri-bridge
  */
 
@@ -990,6 +990,9 @@ function iri_register_dynamic_tags( $tags ) {
         'IRI: Airport Drive (mins)'      => 'airport_drive_mins',
         'IRI: Airport Drive Text'        => 'airport_drive_text',
         'IRI: Airport Distance (km)'     => 'airport_distance_km',
+        'IRI: Station Name'              => 'station_nearest_name',
+        'IRI: Station Drive (mins)'      => 'station_nearest_mins',
+        'IRI: Station Distance (km)'     => 'station_nearest_km',
         'IRI: Slug'                      => 'slug',
         'IRI: Region'                    => 'region',
         'IRI: Area Taxonomy'             => 'taxonomy_property_area',
@@ -1042,6 +1045,76 @@ function iri_field_shortcode( $atts ) {
     if ( empty( $iri_current_listing ) ) return '';
 
     return esc_html( iri_resolve_field( $field, $iri_current_listing ) );
+}
+
+// ── 4b-2. [iri_distances] — async distance loader for single listing pages ─────
+// Place inside the distances accordion section in Bricks.
+// Renders airport, station, and top-5 ski resort distances.
+// Values already in D1 render immediately; missing values show a spinner
+// and are filled in by distances.js after page load via /listings/:id/distances.
+//
+// CSS hooks:
+//   .iri-distances-widget  — outer container
+//   .iri-dist-section      — airport / station / ski group
+//   .iri-dist-row          — label + value pair
+//   .iri-dist-label        — left label
+//   .iri-dist-value        — right value
+//   .iri-dist-sub          — secondary value (km, inline)
+//   .iri-dist-loading      — spinner placeholder (remove when filled)
+
+add_shortcode( 'iri_distances', 'iri_distances_shortcode' );
+function iri_distances_shortcode() {
+    global $iri_current_listing;
+    if ( empty( $iri_current_listing ) ) return '';
+
+    $l  = $iri_current_listing;
+    $id = $l['id'] ?? '';
+    if ( ! $id ) return '';
+
+    // Enqueue distances.js (served as a static asset from the worker)
+    wp_enqueue_script( 'iri-distances', IRI_WORKER_URL . '/distances.js', [], null, true );
+
+    // Helper — renders a value span. Shows real value if set, spinner if null.
+    $val = function ( $field, $suffix = '' ) use ( $l ) {
+        $v = isset( $l[ $field ] ) ? $l[ $field ] : null;
+        if ( $v !== null && $v !== '' ) {
+            $display = esc_html( $v ) . ( $suffix ? ' ' . esc_html( $suffix ) : '' );
+            return '<span data-field="' . esc_attr( $field ) . '">' . $display . '</span>';
+        }
+        return '<span data-field="' . esc_attr( $field ) . '" class="iri-dist-loading">…</span>';
+    };
+
+    ob_start();
+    ?>
+<div class="iri-distances-widget" data-listing-id="<?php echo esc_attr( $id ); ?>" data-worker-url="<?php echo esc_attr( IRI_WORKER_URL ); ?>">
+
+  <div class="iri-dist-section iri-dist-section--airport">
+    <div class="iri-dist-row">
+      <span class="iri-dist-label">Asahikawa Airport</span>
+      <span class="iri-dist-value">
+        <?php echo $val( 'airport_drive_text' ); ?>
+        <span class="iri-dist-sub"> · <?php echo $val( 'airport_distance_km', 'km' ); ?></span>
+      </span>
+    </div>
+  </div>
+
+  <div class="iri-dist-section iri-dist-section--station">
+    <div class="iri-dist-row">
+      <span class="iri-dist-label"><?php echo $val( 'station_nearest_name' ); ?></span>
+      <span class="iri-dist-value">
+        <?php echo $val( 'station_nearest_mins', 'mins' ); ?>
+        <span class="iri-dist-sub"> · <?php echo $val( 'station_nearest_km', 'km' ); ?></span>
+      </span>
+    </div>
+  </div>
+
+  <div class="iri-dist-section iri-dist-section--ski" data-section="ski">
+    <div class="iri-dist-loading">…</div>
+  </div>
+
+</div>
+    <?php
+    return ob_get_clean();
 }
 
 // ── 4c. [iri_cards] / [iri_map] — JS-driven archive components ────────────────
