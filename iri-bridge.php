@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 4.4.2
+ * Version: 4.4.3
  * GitHub Plugin URI: https://github.com/emperorTikki/iri-bridge
  * Primary Branch: master
  */
@@ -1078,6 +1078,10 @@ function iri_distances_shortcode() {
         $v = isset( $l[ $field ] ) && $l[ $field ] !== null && $l[ $field ] !== '' ? $l[ $field ] : null;
         $attr = ' data-field="' . esc_attr( $field ) . '"';
         if ( $v !== null ) {
+            // Round km values to whole numbers
+            if ( $suffix === 'km' && is_numeric( $v ) ) {
+                $v = round( $v );
+            }
             $text = esc_html( $v ) . ( $suffix ? ' ' . esc_html( $suffix ) : '' );
             return '<span' . $attr . '>' . $text . '</span>';
         }
