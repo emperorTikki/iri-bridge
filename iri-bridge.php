@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 4.3.1
+ * Version: 4.4.0
  * GitHub Plugin URI: https://github.com/emperorTikki/iri-bridge
  * Primary Branch: master
  */
@@ -991,6 +991,9 @@ function iri_register_dynamic_tags( $tags ) {
         'IRI: Airport Drive (mins)'      => 'airport_drive_mins',
         'IRI: Airport Drive Text'        => 'airport_drive_text',
         'IRI: Airport Distance (km)'     => 'airport_distance_km',
+        'IRI: Station Name'              => 'station_nearest_name',
+        'IRI: Station Drive (mins)'      => 'station_nearest_mins',
+        'IRI: Station Distance (km)'     => 'station_nearest_km',
         'IRI: Slug'                      => 'slug',
         'IRI: Region'                    => 'region',
         'IRI: Area Taxonomy'             => 'taxonomy_property_area',
@@ -1043,6 +1046,65 @@ function iri_field_shortcode( $atts ) {
     if ( empty( $iri_current_listing ) ) return '';
 
     return esc_html( iri_resolve_field( $field, $iri_current_listing ) );
+}
+
+// ── 4b-2. [iri_distances] — async distance loader for single listing pages ─────
+// Place inside the distances accordion section in Bricks.
+// Renders airport, nearest station, and top-5 ski resort drive times.
+// Values already in D1 show immediately; null fields show a spinner and
+// are filled by distances.js after page load via GET /listings/:id/distances.
+//
+// CSS hooks:
+//   .iri-distances-widget  — outer container
+//   .iri-dist-section      — airport / station / ski group
+//   .iri-dist-row          — label + value pair
+//   .iri-dist-label        — left label
+//   .iri-dist-value        — right value
+//   .iri-dist-sub          — secondary value (km)
+//   .iri-dist-loading      — spinner placeholder (removed when filled by JS)
+
+add_shortcode( 'iri_distances', 'iri_distances_shortcode' );
+function iri_distances_shortcode() {
+    global $iri_current_listing;
+    if ( empty( $iri_current_listing ) ) return '';
+
+    $l  = $iri_current_listing;
+    $id = $l['id'] ?? '';
+    if ( ! $id ) return '';
+
+    wp_enqueue_script( 'iri-distances', IRI_WORKER_URL . '/distances.js', array(), null, true );
+
+    $val = function ( $field, $suffix = '' ) use ( $l ) {
+        $v = isset( $l[ $field ] ) && $l[ $field ] !== null && $l[ $field ] !== '' ? $l[ $field ] : null;
+        $attr = ' data-field="' . esc_attr( $field ) . '"';
+        if ( $v !== null ) {
+            $text = esc_html( $v ) . ( $suffix ? ' ' . esc_html( $suffix ) : '' );
+            return '<span' . $attr . '>' . $text . '</span>';
+        }
+        return '<span' . $attr . ' class="iri-dist-loading">&hellip;</span>';
+    };
+
+    ob_start();
+    echo '<div class="iri-distances-widget" data-listing-id="' . esc_attr( $id ) . '" data-worker-url="' . esc_attr( IRI_WORKER_URL ) . '">';
+
+    echo '<div class="iri-dist-section iri-dist-section--airport">';
+    echo '<div class="iri-dist-row">';
+    echo '<span class="iri-dist-label">Asahikawa Airport</span>';
+    echo '<span class="iri-dist-value">' . $val( 'airport_drive_text' ) . '<span class="iri-dist-sub"> &middot; ' . $val( 'airport_distance_km', 'km' ) . '</span></span>';
+    echo '</div></div>';
+
+    echo '<div class="iri-dist-section iri-dist-section--station">';
+    echo '<div class="iri-dist-row">';
+    echo '<span class="iri-dist-label">' . $val( 'station_nearest_name' ) . '</span>';
+    echo '<span class="iri-dist-value">' . $val( 'station_nearest_mins', 'mins' ) . '<span class="iri-dist-sub"> &middot; ' . $val( 'station_nearest_km', 'km' ) . '</span></span>';
+    echo '</div></div>';
+
+    echo '<div class="iri-dist-section iri-dist-section--ski" data-section="ski">';
+    echo '<div class="iri-dist-loading">&hellip;</div>';
+    echo '</div>';
+
+    echo '</div>';
+    return ob_get_clean();
 }
 
 // ── 4c. [iri_cards] / [iri_map] — JS-driven archive components ────────────────
