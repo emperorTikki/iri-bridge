@@ -5,7 +5,8 @@
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
  * Version: 2.5.0
- * GitHub Plugin URI: emperorTikki/iri-bridge
+ * GitHub Plugin URI: https://github.com/emperorTikki/iri-bridge
+ * Primary Branch: master
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
