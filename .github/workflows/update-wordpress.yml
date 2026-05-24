@@ -1,0 +1,14 @@
+name: Update WordPress Plugin
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Git Updater
+        run: |
+          curl -s "https://asahistay.com/wp-json/git-updater/v1/update/?key=${{ secrets.GIT_UPDATER_KEY }}&plugin=iri-bridge/iri-bridge.php"
