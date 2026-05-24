@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 4.4.0
+ * Version: 4.4.1
  * GitHub Plugin URI: https://github.com/emperorTikki/iri-bridge
  * Primary Branch: master
  */
@@ -1084,20 +1084,44 @@ function iri_distances_shortcode() {
         return '<span' . $attr . ' class="iri-dist-loading">&hellip;</span>';
     };
 
+    static $css_done = false;
     ob_start();
+
+    if ( ! $css_done ) {
+        $css_done = true;
+        echo '<style>
+.iri-distances-widget .iri-dist-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0 1.5em;
+  align-items: baseline;
+  padding: 0.2em 0;
+}
+.iri-distances-widget .iri-dist-mins {
+  text-align: right;
+  white-space: nowrap;
+}
+.iri-distances-widget .iri-dist-km {
+  text-align: right;
+  white-space: nowrap;
+  min-width: 4em;
+}
+</style>';
+    }
+
     echo '<div class="iri-distances-widget" data-listing-id="' . esc_attr( $id ) . '" data-worker-url="' . esc_attr( IRI_WORKER_URL ) . '">';
 
-    echo '<div class="iri-dist-section iri-dist-section--airport">';
     echo '<div class="iri-dist-row">';
     echo '<span class="iri-dist-label">Asahikawa Airport</span>';
-    echo '<span class="iri-dist-value">' . $val( 'airport_drive_text' ) . '<span class="iri-dist-sub"> &middot; ' . $val( 'airport_distance_km', 'km' ) . '</span></span>';
-    echo '</div></div>';
+    echo '<span class="iri-dist-mins" data-field="airport_drive_text">' . $val( 'airport_drive_text' ) . '</span>';
+    echo '<span class="iri-dist-km" data-field="airport_distance_km">' . $val( 'airport_distance_km', 'km' ) . '</span>';
+    echo '</div>';
 
-    echo '<div class="iri-dist-section iri-dist-section--station">';
     echo '<div class="iri-dist-row">';
-    echo '<span class="iri-dist-label">' . $val( 'station_nearest_name' ) . '</span>';
-    echo '<span class="iri-dist-value">' . $val( 'station_nearest_mins', 'mins' ) . '<span class="iri-dist-sub"> &middot; ' . $val( 'station_nearest_km', 'km' ) . '</span></span>';
-    echo '</div></div>';
+    echo '<span class="iri-dist-label" data-field="station_nearest_name">' . $val( 'station_nearest_name' ) . '</span>';
+    echo '<span class="iri-dist-mins" data-field="station_nearest_mins">' . $val( 'station_nearest_mins', 'mins' ) . '</span>';
+    echo '<span class="iri-dist-km" data-field="station_nearest_km">' . $val( 'station_nearest_km', 'km' ) . '</span>';
+    echo '</div>';
 
     echo '<div class="iri-dist-section iri-dist-section--ski" data-section="ski">';
     echo '<div class="iri-dist-loading">&hellip;</div>';
