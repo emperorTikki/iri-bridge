@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 4.4.3
+ * Version: 4.4.4
  * GitHub Plugin URI: https://github.com/emperorTikki/iri-bridge
  * Primary Branch: master
  */
@@ -586,6 +586,33 @@ function iri_resolve_field( $field, $listing ) {
         return iri_build_similar_listings_html( $listing );
     }
 
+    // Status-aware label to pair with _last_seen: "Last seen active" / "Under Contract" / "Sold"
+    if ( $field === '_last_seen_label' ) {
+        $status = $listing['status'] ?? 'active';
+        if ( $status === 'sold' )           return 'Sold';
+        if ( $status === 'under_contract' ) return 'Under Contract';
+        return 'Last seen active';
+    }
+
+    // Status-aware date — each status has a dedicated source column:
+    //   active         → last_checked_at (last Sunday index confirm) ?? scraped_at
+    //   under_contract → under_contract_at (when it went under contract)
+    //   sold           → sold_at (when it sold)
+    // Format: "May 27, 2026"
+    if ( $field === '_last_seen' ) {
+        $status = $listing['status'] ?? 'active';
+        if ( $status === 'sold' ) {
+            $raw = $listing['sold_at'] ?? $listing['last_checked_at'] ?? '';
+        } elseif ( $status === 'under_contract' ) {
+            $raw = $listing['under_contract_at'] ?? $listing['last_checked_at'] ?? '';
+        } else {
+            $raw = $listing['last_checked_at'] ?? $listing['scraped_at'] ?? '';
+        }
+        if ( ! $raw ) return '';
+        $ts = strtotime( $raw );
+        return $ts ? date( 'M j, Y', $ts ) : '';
+    }
+
     return $listing[ $field ] ?? '';
 }
 
@@ -986,6 +1013,8 @@ function iri_register_dynamic_tags( $tags ) {
         'IRI: Handover'                  => 'handover_en',
         'IRI: Commission'                => 'commission_raw',
         'IRI: Last Updated'              => 'last_updated',
+        'IRI: Last Seen Active'          => '_last_seen',       // computed: status-aware date, formatted
+        'IRI: Last Seen Label'           => '_last_seen_label', // computed: "Last seen active" / "Under Contract" / "Sold"
         'IRI: Images'                    => 'images',
         'IRI: Image Count'               => 'image_count',
         'IRI: Airport Drive (mins)'      => 'airport_drive_mins',
