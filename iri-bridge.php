@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 4.5.2
+ * Version: 4.5.3
  * GitHub Plugin URI: https://github.com/emperorTikki/iri-bridge
  * Primary Branch: master
  */
@@ -348,9 +348,22 @@ function iri_listing_image_url( $l ) {
     return $raw ? trim( reset( $raw ) ) : '';
 }
 
-// NOTE: wpseo_opengraph_image / wpseo_twitter_image are legacy filters that
-// Yoast 14+ ignores — they were set in 4.5.1 and produced no og:image. The image
-// is set on the presentation object instead (open_graph_images), below.
+// og:image is set through BOTH surfaces on purpose.
+//
+// These filters are the older API and are confirmed working on Yoast 28.2 — the
+// live og:image on listing pages comes from here. (4.5.2 removed them on the
+// mistaken belief that Yoast 14+ ignores them; the real reason no image rendered
+// before was that Yoast's Open Graph output was disabled site-wide.) The
+// presentation object below sets the same URL via the modern API. Whichever
+// surface Yoast honours, the value is identical, so there is no conflict — and a
+// future Yoast release dropping either one cannot silently blank the image.
+add_filter( 'wpseo_opengraph_image', 'iri_yoast_og_image' );
+add_filter( 'wpseo_twitter_image',   'iri_yoast_og_image' );
+function iri_yoast_og_image( $image ) {
+    global $iri_current_listing;
+    if ( empty( $iri_current_listing ) ) return $image;
+    return iri_listing_image_url( $iri_current_listing ) ?: $image;
+}
 
 /**
  * Yoast 14+ resolves these virtual listing URLs to the listing-post-type ARCHIVE's
