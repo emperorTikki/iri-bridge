@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 4.4.4
+ * Version: 4.5.0
  * GitHub Plugin URI: https://github.com/emperorTikki/iri-bridge
  * Primary Branch: master
  */
@@ -235,6 +235,81 @@ function iri_output_archive_schema_jsonld() {
     echo "\n</script>\n";
 }
 
+// ── 2. Listing page identity — title + canonical ──────────────────────────────
+// Every listing page is the same shell post rendered through rewrite rules, so
+// left alone Yoast reports the SHELL's identity on all ~1,450 of them:
+//   canonical → /listing/iri-shell/   (the whole catalogue claiming to be one page)
+//   title     → "House – AsahiStay"   (one of ~8 titles across the entire site)
+// Google has been overriding the canonical in our favour, but that is its
+// discretion, not a guarantee. These filters state the real identity instead.
+//
+// Yoast runs LATE and overrides pre_get_document_title, so the title must be
+// filtered through wpseo_title as well — see iri_render_listing().
+
+/**
+ * Human title for a listing: "House in Wakabachō, Furano — ¥10,000,000".
+ *
+ * Deliberately composed from geo fields rather than title_en: 992 of 1,448
+ * visible listings have a degenerate title_en (literally "House", "Land") from
+ * upserts that ran before geocoding resolved, while municipality/district are
+ * populated. Composing here fixes every page regardless of that backlog.
+ */
+function iri_listing_title( $l, $with_price = true ) {
+    $type     = $l['property_type_en'] ?? '';
+    $muni     = $l['municipality']     ?? '';
+    $district = $l['district']         ?? '';
+
+    // title_en is only trusted when it is already descriptive.
+    $base = '';
+    if ( $type && $muni ) {
+        $base = ( $district && $district !== $muni )
+            ? "{$type} in {$district}, {$muni}"
+            : "{$type} in {$muni}";
+    } elseif ( ! empty( $l['title_en'] ) && strpos( $l['title_en'], ' in ' ) !== false ) {
+        $base = $l['title_en'];
+    } elseif ( $type && ! empty( $l['address_en'] ) ) {
+        $base = "{$type} — " . $l['address_en'];
+    } else {
+        $base = $l['title_en'] ?? 'Listing';
+    }
+
+    // Price disambiguates listings that share a district — many do.
+    $price = $l['price_jpy_display'] ?? '';
+    if ( $with_price && $price ) $base .= ' — ' . $price;
+
+    return $base;
+}
+
+/** Canonical URL for a listing — the same shape the rewrite rules serve. */
+function iri_listing_url( $l ) {
+    $region = $l['region']                  ?? 'hokkaido';
+    $area   = $l['taxonomy_property_area']  ?? '';
+    $slug   = $l['slug']                    ?? '';
+    if ( ! $slug ) return '';
+    return home_url( "/listing/{$region}/{$area}/{$slug}/" );
+}
+
+add_filter( 'wpseo_canonical', 'iri_yoast_canonical' );
+function iri_yoast_canonical( $canonical ) {
+    global $iri_current_listing;
+    if ( empty( $iri_current_listing ) ) return $canonical;
+    $url = iri_listing_url( $iri_current_listing );
+    return $url ?: $canonical;
+}
+
+// og:url is derived from the canonical by Yoast, but pin it explicitly so a
+// Yoast change cannot silently reintroduce the shell URL in social previews.
+add_filter( 'wpseo_opengraph_url', 'iri_yoast_canonical' );
+
+add_filter( 'wpseo_title', 'iri_yoast_title' );
+function iri_yoast_title( $title ) {
+    global $iri_current_listing;
+    if ( empty( $iri_current_listing ) ) return $title;
+    return iri_listing_title( $iri_current_listing ) . ' | ' . get_bloginfo( 'name' );
+}
+
+add_filter( 'wpseo_opengraph_title', 'iri_yoast_title' );
+
 // ── 2a. Yoast breadcrumb — listing pages ──────────────────────────────────────
 // Replaces Yoast's default breadcrumb with listing-specific crumbs on single
 // listing pages. Controls both the visual [wpseo_breadcrumb] output AND the
@@ -251,7 +326,8 @@ function iri_yoast_breadcrumb_links( $links ) {
     $area_group  = $iri_current_listing['area_group'] ?? '';
     $area_label  = ucwords( str_replace( '-', ' ', $area ) );
     $group_label = iri_area_group_label( $area_group );
-    $title       = $iri_current_listing['title_en'] ?? 'Listing';
+    // No price in a breadcrumb — it is a location trail, not a listing label.
+    $title       = iri_listing_title( $iri_current_listing, false );
 
     return [
         [ 'url' => home_url( '/' ),                                                  'text' => 'Home' ],
@@ -400,13 +476,14 @@ function iri_template_redirect() {
     // Override the shell post title so Bricks / SEO plugins see the real title.
     global $post;
     if ( $post ) {
-        $post->post_title = $listing['title_en'] ?? 'Listing';
+        $post->post_title = iri_listing_title( $listing, false );
         setup_postdata( $post );
     }
 
-    // Set the browser/SEO document title.
+    // Browser/SEO document title. Yoast overrides this filter when it is active,
+    // which is why wpseo_title carries the same value — see section 2.
     add_filter( 'pre_get_document_title', function() use ( $listing ) {
-        return ( $listing['title_en'] ?? 'Listing' ) . ' | ' . get_bloginfo( 'name' );
+        return iri_listing_title( $listing ) . ' | ' . get_bloginfo( 'name' );
     } );
 
     // Enqueue GLightbox on single listing pages for gallery lightbox support
