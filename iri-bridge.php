@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 4.5.1
+ * Version: 4.5.2
  * GitHub Plugin URI: https://github.com/emperorTikki/iri-bridge
  * Primary Branch: master
  */
@@ -348,15 +348,9 @@ function iri_listing_image_url( $l ) {
     return $raw ? trim( reset( $raw ) ) : '';
 }
 
-// Listing pages were emitting NO og:image at all, so every shared link rendered
-// as a bare text card. Use the property photo the page already shows.
-add_filter( 'wpseo_opengraph_image', 'iri_yoast_og_image' );
-add_filter( 'wpseo_twitter_image',   'iri_yoast_og_image' );
-function iri_yoast_og_image( $image ) {
-    global $iri_current_listing;
-    if ( empty( $iri_current_listing ) ) return $image;
-    return iri_listing_image_url( $iri_current_listing ) ?: $image;
-}
+// NOTE: wpseo_opengraph_image / wpseo_twitter_image are legacy filters that
+// Yoast 14+ ignores — they were set in 4.5.1 and produced no og:image. The image
+// is set on the presentation object instead (open_graph_images), below.
 
 /**
  * Yoast 14+ resolves these virtual listing URLs to the listing-post-type ARCHIVE's
@@ -391,6 +385,24 @@ function iri_yoast_presentation( $presentation ) {
         $presentation->canonical      = $url;
         $presentation->open_graph_url = $url;
     }
+
+    // og:image — the property photo. Yoast 14+ reads open_graph_images (an array
+    // of image arrays) off the presentation; the legacy wpseo_opengraph_image
+    // filter is ignored, which is why 4.5.1 still rendered no image.
+    $img = iri_listing_image_url( $iri_current_listing );
+    if ( $img ) {
+        $presentation->open_graph_images = [
+            [
+                'url' => $img,
+                'alt' => $title,
+            ],
+        ];
+        $presentation->twitter_image = $img;
+    }
+
+    // og:type — these are property listings, not generic site pages.
+    $presentation->open_graph_type = 'article';
+
     return $presentation;
 }
 
