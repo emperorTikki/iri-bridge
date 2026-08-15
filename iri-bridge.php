@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 4.5.0
+ * Version: 4.5.1
  * GitHub Plugin URI: https://github.com/emperorTikki/iri-bridge
  * Primary Branch: master
  */
@@ -305,10 +305,94 @@ add_filter( 'wpseo_title', 'iri_yoast_title' );
 function iri_yoast_title( $title ) {
     global $iri_current_listing;
     if ( empty( $iri_current_listing ) ) return $title;
-    return iri_listing_title( $iri_current_listing ) . ' | ' . get_bloginfo( 'name' );
+    // No price: the <title> is already at the SERP length limit with the
+    // location, and a price in the title churns on every price change.
+    return iri_listing_title( $iri_current_listing, false ) . ' – ' . get_bloginfo( 'name' );
 }
 
 add_filter( 'wpseo_opengraph_title', 'iri_yoast_title' );
+
+/**
+ * One-line social description: "Land · 329 m² · Biei, Hokkaido — ¥5,500,000".
+ * Built from fields the by-slug payload always carries.
+ */
+function iri_listing_social_description( $l ) {
+    $bits = [];
+    if ( ! empty( $l['property_type_en'] ) ) $bits[] = $l['property_type_en'];
+
+    $land = $l['land_area_sqm']     ?? null;
+    $bldg = $l['building_area_sqm'] ?? null;
+    if ( $bldg ) $bits[] = 'building ' . round( (float) $bldg ) . ' m²';
+    if ( $land ) {
+        // On a land listing the area needs no label — "Land · land 329 m²" reads badly.
+        $is_land  = stripos( $l['property_type_en'] ?? '', 'land' ) !== false;
+        $bits[]   = ( $is_land && ! $bldg ? '' : 'land ' ) . round( (float) $land ) . ' m²';
+    }
+    if ( ! empty( $l['build_year'] ) ) $bits[] = 'built ' . $l['build_year'];
+
+    $where = $l['municipality'] ?? '';
+    if ( $where ) $bits[] = $where . ', Hokkaido';
+
+    $out = implode( ' · ', $bits );
+    if ( ! empty( $l['price_jpy_display'] ) ) $out .= ' — ' . $l['price_jpy_display'];
+    return $out;
+}
+
+/** First image for a listing — Cloudflare fullsize, else the raw scraped URL. */
+function iri_listing_image_url( $l ) {
+    $cf_ids = array_filter( explode( '|', $l['cf_images'] ?? '' ) );
+    if ( $cf_ids ) {
+        return 'https://imagedelivery.net/' . IRI_CF_ACCOUNT_HASH . '/' . reset( $cf_ids ) . '/fullsize';
+    }
+    $raw = array_filter( explode( '|', $l['images'] ?? '' ) );
+    return $raw ? trim( reset( $raw ) ) : '';
+}
+
+// Listing pages were emitting NO og:image at all, so every shared link rendered
+// as a bare text card. Use the property photo the page already shows.
+add_filter( 'wpseo_opengraph_image', 'iri_yoast_og_image' );
+add_filter( 'wpseo_twitter_image',   'iri_yoast_og_image' );
+function iri_yoast_og_image( $image ) {
+    global $iri_current_listing;
+    if ( empty( $iri_current_listing ) ) return $image;
+    return iri_listing_image_url( $iri_current_listing ) ?: $image;
+}
+
+/**
+ * Yoast 14+ resolves these virtual listing URLs to the listing-post-type ARCHIVE's
+ * social metadata, so every listing shared to LINE/WhatsApp/Facebook showed the same
+ * card: og:title "Central Hokkaido Real Estate Listings" on all ~1,450 of them.
+ *
+ * The individual wpseo_* filters above do not reliably win — `wpseo_title` in
+ * particular is not applied on these URLs (the working <title> comes from the
+ * $post->post_title override plus Yoast's own template). The presentation object is
+ * the authoritative surface in Yoast 14+ and is resolved at output time, after
+ * template_redirect has populated $iri_current_listing, so it does not depend on
+ * hook ordering the way the individual filters do.
+ */
+add_filter( 'wpseo_frontend_presentation', 'iri_yoast_presentation', 20 );
+function iri_yoast_presentation( $presentation ) {
+    global $iri_current_listing;
+    if ( empty( $iri_current_listing ) || ! is_object( $presentation ) ) return $presentation;
+
+    $title = iri_listing_title( $iri_current_listing, false );
+    $desc  = iri_listing_social_description( $iri_current_listing );
+    $url   = iri_listing_url( $iri_current_listing );
+
+    $presentation->title                  = $title . ' – ' . get_bloginfo( 'name' );
+    $presentation->open_graph_title       = $title;
+    $presentation->twitter_title          = $title;
+    if ( $desc ) {
+        $presentation->meta_description       = $desc;
+        $presentation->open_graph_description = $desc;
+        $presentation->twitter_description    = $desc;
+    }
+    if ( $url ) {
+        $presentation->canonical      = $url;
+        $presentation->open_graph_url = $url;
+    }
+    return $presentation;
+}
 
 // ── 2a. Yoast breadcrumb — listing pages ──────────────────────────────────────
 // Replaces Yoast's default breadcrumb with listing-specific crumbs on single
