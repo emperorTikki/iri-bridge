@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 4.5.3
+ * Version: 4.6.0
  * GitHub Plugin URI: https://github.com/emperorTikki/iri-bridge
  * Primary Branch: master
  */
@@ -698,7 +698,78 @@ function iri_format_value( $value, $format ) {
  * Resolve a single IRI field name to its value.
  * Handles computed fields; falls back to the raw D1 column value.
  */
+/**
+ * ── Marketing (polished) descriptions — DISPLAY SWITCH, CURRENTLY OFF ─────────
+ *
+ * translate-worker POST /polish rewrites the literal English translation into
+ * readable prose; listing-monitor's polish:ID job stores it as
+ * description_marketing. When this constant is true, {iri_description_en} resolves
+ * to that rewrite wherever it exists, and falls back to the literal translation
+ * everywhere else — so no Bricks template needs editing and a half-finished
+ * backfill degrades to today's behaviour.
+ *
+ * ⚠️ DO NOT flip this to true on its own. The rewrite demonstrably drops material
+ * facts (a real listing's "City gas main line is not available on the front road"
+ * vanished across three prompt revisions). Shipping it is only acceptable alongside
+ * the listing-page disclosure — see IRI_MARKETING_DISCLOSURE below and the open item
+ * in CLAUDE.md. Turn both on in the same release.
+ */
+if ( ! defined( 'IRI_USE_MARKETING_DESCRIPTION' ) ) {
+    define( 'IRI_USE_MARKETING_DESCRIPTION', true );
+}
+
+/**
+ * Disclosure text, approved 2026-08-16. Rendered in two places by
+ * iri_resolve_field(): a short footnote link right after the description
+ * ({iri_description_en} itself carries the marker — no separate tag needed) and the
+ * full notice at {iri__marketing_disclosure}, which the Bricks template places at the
+ * BOTTOM OF THE PAGE — that placement is a template change, not something this file
+ * can do on its own. Both are empty/absent while IRI_USE_MARKETING_DESCRIPTION is off.
+ */
+if ( ! defined( 'IRI_MARKETING_DISCLOSURE' ) ) {
+    define(
+        'IRI_MARKETING_DISCLOSURE',
+        'The English text has been translated from the seller\'s original Japanese listing and edited for readability. This editing process may omit or condense details present in the original. The Japanese listing is the authoritative source and takes precedence over this English description in the event of any discrepancy. Please confirm all details — including price, condition, and any restrictions — directly with us before making any decision.'
+    );
+}
+
+// Anchor id shared between the footnote link and the full-notice target — one
+// constant so the two can never drift out of sync with each other.
+const IRI_MARKETING_DISCLOSURE_ANCHOR = 'iri-marketing-disclosure';
+
 function iri_resolve_field( $field, $listing ) {
+
+    // Marketing description swap. Deliberately keyed on 'description_en' so the
+    // existing {iri_description_en} token in the Bricks template picks it up with no
+    // template change — and so turning the switch off instantly reverts every page.
+    // Falls back to the literal whenever the rewrite is missing or empty.
+    //
+    // A short footnote link is appended to the text itself (rather than exposed as a
+    // separate tag) so it always travels WITH the marketing copy — the template
+    // cannot place the description without the link, or the link without the
+    // description drifting out of sync with which is shown.
+    if ( $field === 'description_en' && IRI_USE_MARKETING_DESCRIPTION ) {
+        $marketing = trim( (string) ( $listing['description_marketing'] ?? '' ) );
+        if ( $marketing !== '' ) {
+            return $marketing
+                . ' <sup class="iri-disclosure-marker"><a href="#' . esc_attr( IRI_MARKETING_DISCLOSURE_ANCHOR ) . '" aria-label="Translation notice">†</a></sup>';
+        }
+    }
+
+    // Full disclosure. Place {iri__marketing_disclosure} at the BOTTOM OF THE PAGE in
+    // the Bricks template — the footnote link above jumps to this anchor. Renders
+    // only when marketing copy is actually being shown, so a listing still displaying
+    // the literal translation does not carry a notice about editing that did not
+    // happen to it.
+    if ( $field === '_marketing_disclosure' ) {
+        if ( ! IRI_USE_MARKETING_DESCRIPTION ) return '';
+        $marketing = trim( (string) ( $listing['description_marketing'] ?? '' ) );
+        if ( $marketing === '' ) return '';
+        return '<div id="' . esc_attr( IRI_MARKETING_DISCLOSURE_ANCHOR ) . '" class="iri-marketing-disclosure">'
+            . '<p><strong>About this description</strong></p>'
+            . '<p>' . esc_html( IRI_MARKETING_DISCLOSURE ) . '</p>'
+            . '</div>';
+    }
 
     if ( $field === '_listing_url' ) {
         $region = $listing['region'] ?? 'hokkaido';
@@ -1171,6 +1242,7 @@ function iri_register_dynamic_tags( $tags ) {
         'IRI: Status'                    => 'status',
         'IRI: Title'                     => 'title_en',
         'IRI: Description'               => 'description_en',
+        'IRI: Description (Marketing)'   => 'description_marketing',
         'IRI: Property Type'             => 'property_type_en',
         'IRI: Address'                   => 'address_en',
         'IRI: Municipality'              => 'municipality',
