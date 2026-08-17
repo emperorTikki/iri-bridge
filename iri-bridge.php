@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 4.6.0
+ * Version: 4.6.1
  * GitHub Plugin URI: https://github.com/emperorTikki/iri-bridge
  * Primary Branch: master
  */
@@ -765,9 +765,11 @@ function iri_resolve_field( $field, $listing ) {
         if ( ! IRI_USE_MARKETING_DESCRIPTION ) return '';
         $marketing = trim( (string) ( $listing['description_marketing'] ?? '' ) );
         if ( $marketing === '' ) return '';
-        return '<div id="' . esc_attr( IRI_MARKETING_DISCLOSURE_ANCHOR ) . '" class="iri-marketing-disclosure">'
-            . '<p><strong>About this description</strong></p>'
-            . '<p>' . esc_html( IRI_MARKETING_DISCLOSURE ) . '</p>'
+        // Inline styles, not just the class, so it renders small regardless of
+        // whether the Bricks shortcode element has its own CSS targeting this class.
+        return '<div id="' . esc_attr( IRI_MARKETING_DISCLOSURE_ANCHOR ) . '" class="iri-marketing-disclosure" style="font-size:0.8em;line-height:1.5;color:#666;">'
+            . '<p style="margin:0 0 4px;"><strong>About this description</strong></p>'
+            . '<p style="margin:0;">' . esc_html( IRI_MARKETING_DISCLOSURE ) . '</p>'
             . '</div>';
     }
 
