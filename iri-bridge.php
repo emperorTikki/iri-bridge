@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 4.6.2
+ * Version: 4.7.0
  * GitHub Plugin URI: https://github.com/emperorTikki/iri-bridge
  * Primary Branch: master
  */
@@ -719,12 +719,7 @@ if ( ! defined( 'IRI_USE_MARKETING_DESCRIPTION' ) ) {
 }
 
 /**
- * Disclosure text, approved 2026-08-16. Rendered in two places by
- * iri_resolve_field(): a short footnote link right after the description
- * ({iri_description_en} itself carries the marker — no separate tag needed) and the
- * full notice at {iri__marketing_disclosure}, which the Bricks template places at the
- * BOTTOM OF THE PAGE — that placement is a template change, not something this file
- * can do on its own. Both are empty/absent while IRI_USE_MARKETING_DESCRIPTION is off.
+ * Disclosure text, approved 2026-08-16.
  */
 if ( ! defined( 'IRI_MARKETING_DISCLOSURE' ) ) {
     define(
@@ -733,9 +728,34 @@ if ( ! defined( 'IRI_MARKETING_DISCLOSURE' ) ) {
     );
 }
 
-// Anchor id shared between the footnote link and the full-notice target — one
-// constant so the two can never drift out of sync with each other.
-const IRI_MARKETING_DISCLOSURE_ANCHOR = 'iri-marketing-disclosure';
+/**
+ * The † marker + its popover card, as one self-contained unit appended straight
+ * after the description text. CSS-only — native <details>/<summary>, no JavaScript.
+ * Chosen over a jump-to-bottom link (the original approach) because a page jump was
+ * jarring; chosen over a JS popover because this project has no existing frontend JS
+ * pipeline, and <details> gets click-to-reveal, keyboard access and screen-reader
+ * semantics for free.
+ *
+ * The <details> element itself carries position:relative and the revealed content is
+ * position:absolute, which is what makes the card FLOAT under the marker instead of
+ * pushing the rest of the paragraph down when opened — that positioning pair is the
+ * whole trick to a CSS-only popover.
+ *
+ * Known limitation of going CSS-only: <details> has no native click-outside-to-close.
+ * A reader closes it by clicking the † again. Acceptable trade for zero JS; revisit
+ * if it proves confusing in practice.
+ */
+function iri_marketing_disclosure_card() {
+    $text = esc_html( IRI_MARKETING_DISCLOSURE );
+    return ' <details class="iri-disclosure-marker" style="position:relative;display:inline-block;">'
+        . '<summary style="cursor:pointer;list-style:none;color:#666;font-size:0.85em;" aria-label="Translation notice">†</summary>'
+        . '<div style="position:absolute;top:1.4em;left:0;z-index:10;width:260px;max-width:80vw;'
+        .   'background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,0.12);'
+        .   'padding:10px 12px;font-size:0.8em;line-height:1.5;color:#555;">'
+        . '<strong>About this description</strong><p style="margin:4px 0 0;">' . $text . '</p>'
+        . '</div>'
+        . '</details>';
+}
 
 function iri_resolve_field( $field, $listing ) {
 
@@ -744,36 +764,25 @@ function iri_resolve_field( $field, $listing ) {
     // template change — and so turning the switch off instantly reverts every page.
     // Falls back to the literal whenever the rewrite is missing or empty.
     //
-    // A short footnote link is appended to the text itself (rather than exposed as a
+    // The disclosure card is appended to the text itself (rather than exposed as a
     // separate tag) so it always travels WITH the marketing copy — the template
-    // cannot place the description without the link, or the link without the
-    // description drifting out of sync with which is shown.
+    // cannot place the description without it, or it without the description,
+    // drifting out of sync with which is shown.
     if ( $field === 'description_en' && IRI_USE_MARKETING_DESCRIPTION ) {
         $marketing = trim( (string) ( $listing['description_marketing'] ?? '' ) );
         if ( $marketing !== '' ) {
-            return $marketing
-                . ' <sup class="iri-disclosure-marker"><a href="#' . esc_attr( IRI_MARKETING_DISCLOSURE_ANCHOR ) . '" aria-label="Translation notice">†</a></sup>';
+            return $marketing . iri_marketing_disclosure_card();
         }
     }
 
-    // Full disclosure. Place {iri__marketing_disclosure} at the BOTTOM OF THE PAGE in
-    // the Bricks template — the footnote link above jumps to this anchor. Renders
-    // only when marketing copy is actually being shown, so a listing still displaying
-    // the literal translation does not carry a notice about editing that did not
-    // happen to it.
+    // SUPERSEDED 2026-08-16 by the inline card above — the disclosure now travels
+    // with the description itself, so a separate bottom-of-page notice would just
+    // duplicate it. Kept registered and returning '' (rather than removed outright)
+    // so the {iri__marketing_disclosure} shortcode already placed on the live page
+    // renders nothing instead of an "unknown tag" error. Safe to remove that
+    // shortcode from the template whenever convenient; nothing depends on it.
     if ( $field === '_marketing_disclosure' ) {
-        if ( ! IRI_USE_MARKETING_DESCRIPTION ) return '';
-        $marketing = trim( (string) ( $listing['description_marketing'] ?? '' ) );
-        if ( $marketing === '' ) return '';
-        // Inline styles, not just the class, so it renders small regardless of
-        // whether the Bricks shortcode element has its own CSS targeting this class.
-        // Leading † matches the marker appended to the description above — same
-        // symbol on both ends is what makes it read as a footnote pair rather than
-        // two unrelated notices.
-        return '<div id="' . esc_attr( IRI_MARKETING_DISCLOSURE_ANCHOR ) . '" class="iri-marketing-disclosure" style="font-size:0.8em;line-height:1.5;color:#666;">'
-            . '<p style="margin:0 0 4px;"><strong>† About this description</strong></p>'
-            . '<p style="margin:0;">' . esc_html( IRI_MARKETING_DISCLOSURE ) . '</p>'
-            . '</div>';
+        return '';
     }
 
     if ( $field === '_listing_url' ) {
