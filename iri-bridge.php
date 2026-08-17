@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 4.7.0
+ * Version: 4.7.1
  * GitHub Plugin URI: https://github.com/emperorTikki/iri-bridge
  * Primary Branch: master
  */
@@ -13,10 +13,21 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 define( 'IRI_WORKER_URL',      'https://asahirealestatelistings.frosty-poetry-ee8c.workers.dev' );
-define( 'IRI_API_SECRET',      '0b95289f2e8607b8c57a8d158f834cb5b1bbc6d830833b2a874f097a80a34424' );
 define( 'IRI_CACHE_TTL',       300 );                    // seconds to cache API responses (5 min)
-define( 'IRI_CF_ACCOUNT_HASH', 'yYahxCzaa87zUnivVan2mg' ); // Cloudflare Images account hash
-define( 'IRI_MAPS_KEY',        'YOUR_GOOGLE_MAPS_KEY' );  // Google Maps JavaScript API key (browser key, restricted to your domain)
+define( 'IRI_CF_ACCOUNT_HASH', 'yYahxCzaa87zUnivVan2mg' ); // Cloudflare Images account hash (public — appears in image URLs)
+
+// ── Credentials — NEVER hardcode these here ───────────────────────────────────
+// This file is published to a PUBLIC repo (github.com/emperorTikki/iri-bridge).
+// Set the real values in wp-config.php, above the "stop editing" line:
+//
+//   define( 'IRI_API_SECRET', '…' );  // must equal the Worker's WORKER_API_SECRET
+//   define( 'IRI_MAPS_KEY',   '…' );  // Google Maps JS API browser key, domain-restricted
+//
+// wp-config.php loads before plugins, so a value set there wins and the fallbacks
+// below never run. An unset credential is an EMPTY STRING, and every consumer must
+// treat that as "not configured" and say so — never send an empty Bearer token.
+if ( ! defined( 'IRI_API_SECRET' ) ) define( 'IRI_API_SECRET', '' );
+if ( ! defined( 'IRI_MAPS_KEY' ) )   define( 'IRI_MAPS_KEY',   '' );
 
 // ── 0. Archive config — always output in <head> so footer JS can read it ──────
 // Must be a top-level hook. Adding it inside a shortcode callback is too late —
@@ -1148,30 +1159,45 @@ function iri_admin_toolbar() {
             style="background:none;border:1px solid #555;border-radius:3px;color:<?php echo $star_col; ?>;cursor:pointer;font:12px monospace;padding:2px 10px;">
             <?php echo $star; ?> <?php echo $star_lbl; ?>
         </button>
-        <span id="iri-featured-msg" style="color:#5cb85c;display:none;">Saved</span>
+        <span id="iri-featured-msg" style="display:none;"></span>
     </div>
     <script>
     function iriToggleFeatured(btn) {
         var newVal = btn.dataset.featured === '1' ? 0 : 1;
+        var msg    = document.getElementById('iri-featured-msg');
+        // A failed toggle used to leave the star unchanged with no explanation, which
+        // reads as "nothing happened" rather than "the save failed". Always say which.
+        function show(text, colour, autoHide) {
+            msg.textContent     = text;
+            msg.style.color     = colour;
+            msg.style.display   = 'inline';
+            if (autoHide) setTimeout(function() { msg.style.display = 'none'; }, 2000);
+        }
         btn.disabled = true;
+        msg.style.display = 'none';
         fetch('<?php echo admin_url( 'admin-ajax.php' ); ?>', {
             method: 'POST',
+            credentials: 'same-origin',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'action=iri_toggle_featured&id=' + btn.dataset.id + '&featured=' + newVal + '&nonce=' + btn.dataset.nonce,
+            body: 'action=iri_toggle_featured&id=' + encodeURIComponent(btn.dataset.id) + '&featured=' + newVal + '&nonce=' + encodeURIComponent(btn.dataset.nonce),
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            if (data.success) {
+            if (data && data.success) {
                 btn.dataset.featured = String(newVal);
                 btn.style.color      = newVal ? '#f6a800' : '#a0a0a0';
                 btn.innerHTML        = (newVal ? '★ Featured' : '☆ Feature');
-                var msg = document.getElementById('iri-featured-msg');
-                msg.style.display = 'inline';
-                setTimeout(function() { msg.style.display = 'none'; }, 2000);
+                show('Saved', '#5cb85c', true);
+            } else {
+                var err = (data && data.data) ? data.data : 'Save failed';
+                show('✕ ' + err, '#e06c6c', false);
             }
             btn.disabled = false;
         })
-        .catch(function() { btn.disabled = false; });
+        .catch(function(e) {
+            show('✕ Request failed: ' + e.message, '#e06c6c', false);
+            btn.disabled = false;
+        });
     }
     </script>
     <?php
@@ -1189,6 +1215,15 @@ function iri_ajax_toggle_featured() {
 
     if ( ! $id ) wp_send_json_error( 'Missing id', 400 );
 
+    // Fail loudly rather than sending "Bearer " and reading the Worker's 401 as a
+    // server fault — an unconfigured secret and a wrong secret are different problems.
+    if ( IRI_API_SECRET === '' ) {
+        wp_send_json_error(
+            'IRI_API_SECRET is not configured. Add define( \'IRI_API_SECRET\', \'…\' ) to wp-config.php, set to the Worker\'s WORKER_API_SECRET.',
+            500
+        );
+    }
+
     $response = wp_remote_post( IRI_WORKER_URL . '/listings/upsert', [
         'timeout' => 10,
         'headers' => [
@@ -1201,6 +1236,9 @@ function iri_ajax_toggle_featured() {
     if ( is_wp_error( $response ) ) wp_send_json_error( $response->get_error_message(), 502 );
 
     $code = wp_remote_retrieve_response_code( $response );
+    if ( $code === 401 ) {
+        wp_send_json_error( 'Worker rejected IRI_API_SECRET (401) — it no longer matches WORKER_API_SECRET.', 502 );
+    }
     if ( $code !== 200 ) wp_send_json_error( 'Worker returned ' . $code, 502 );
 
     iri_flush_listing_cache( get_query_var( 'iri_slug' ) );
@@ -1493,8 +1531,10 @@ function iri_enqueue_archive_assets() {
         true  // load in footer
     );
 
-    // Google Maps — loads async; fires window.iriMapReady when ready
-    if ( defined( 'IRI_MAPS_KEY' ) && IRI_MAPS_KEY && IRI_MAPS_KEY !== 'YOUR_GOOGLE_MAPS_KEY' ) {
+    // Google Maps — loads async; fires window.iriMapReady when ready.
+    // Skipped entirely when IRI_MAPS_KEY is unset (see the credentials block up top);
+    // enqueuing the Maps script with an empty key fails at Google's end, not ours.
+    if ( IRI_MAPS_KEY !== '' ) {
         wp_enqueue_script(
             'google-maps',
             'https://maps.googleapis.com/maps/api/js?key=' . IRI_MAPS_KEY . '&callback=iriMapReady&loading=async',
