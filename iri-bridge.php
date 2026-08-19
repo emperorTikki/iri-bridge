@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 4.7.1
+ * Version: 4.8.0
  * GitHub Plugin URI: https://github.com/emperorTikki/iri-bridge
  * Primary Branch: master
  */
@@ -1249,6 +1249,12 @@ function iri_ajax_toggle_featured() {
 // ── 3. API helpers ────────────────────────────────────────────────────────────
 
 function iri_fetch_by_slug( $slug ) {
+    // WordPress hands us $matches[3] from the rewrite rule still percent-encoded when
+    // the slug contains non-ASCII, so rawurlencode() alone double-encoded it —
+    // "%E8%B1%8A" became "%25E8%25B1%258A", the worker decoded once, and the lookup
+    // missed. Decoding first makes this idempotent whichever form WordPress supplies.
+    // Only ever affected Japanese slugs; ASCII encodes to itself.
+    $slug      = rawurldecode( $slug );
     $cache_key = 'iri_listing_slug_' . md5( $slug );
     $cached    = get_transient( $cache_key );
     if ( $cached !== false ) return $cached;
@@ -1696,3 +1702,111 @@ function iri_handle_flush_cache() {
     wp_redirect( remove_query_arg( 'iri_flush_cache' ) );
     exit;
 }
+
+// ── 9. XML sitemap for listings ───────────────────────────────────────────────
+// Every listing URL is virtual — served from the __iri_shell__ post through
+// rewrite rules — so Yoast's listing-sitemap.xml contained exactly three entries
+// (the two archives plus the shell itself) while ~1,500 properties existed. None
+// of the real listing URLs were ever submitted; Google found them by following
+// links between listings.
+//
+// Registers iri-listings-sitemap.xml via Yoast's documented API and adds it to
+// the sitemap index. Yoast's own listing-sitemap.xml keeps the archives; the
+// shell post is excluded from it below.
+
+const IRI_SITEMAP_NAME = 'iri-listings';
+const IRI_SITEMAP_TTL  = 6 * HOUR_IN_SECONDS;
+
+// The shell post is an internal routing artefact, not a page. It was being
+// submitted to Google as an indexable URL.
+add_filter( 'wpseo_exclude_from_sitemap_by_post_ids', 'iri_sitemap_exclude_shell' );
+function iri_sitemap_exclude_shell( $excluded ) {
+    $shell_id = iri_get_shell_post_id();
+    if ( $shell_id ) $excluded[] = (int) $shell_id;
+    return $excluded;
+}
+
+add_action( 'init', 'iri_register_listing_sitemap' );
+function iri_register_listing_sitemap() {
+    global $wpseo_sitemaps;
+    if ( ! empty( $wpseo_sitemaps ) ) {
+        $wpseo_sitemaps->register_sitemap( IRI_SITEMAP_NAME, 'iri_build_listing_sitemap' );
+    }
+}
+
+add_filter( 'wpseo_sitemap_index', 'iri_add_listing_sitemap_to_index' );
+function iri_add_listing_sitemap_to_index( $custom ) {
+    $rows = iri_sitemap_rows();
+    if ( ! $rows ) return $custom;   // never advertise a sitemap we cannot build
+
+    // Newest last_updated across the catalogue — tells crawlers when to come back.
+    $lastmod = '';
+    foreach ( $rows as $r ) {
+        $d = $r['last_updated'] ?? '';
+        if ( $d && $d > $lastmod ) $lastmod = $d;
+    }
+
+    $custom .= "\t<sitemap>\n"
+             . "\t\t<loc>" . esc_url( home_url( '/' . IRI_SITEMAP_NAME . '-sitemap.xml' ) ) . "</loc>\n"
+             . ( $lastmod ? "\t\t<lastmod>" . esc_html( $lastmod ) . "</lastmod>\n" : '' )
+             . "\t</sitemap>\n";
+    return $custom;
+}
+
+/**
+ * Visible listings for the sitemap, cached separately from the archive grid.
+ *
+ * Uses its own transient rather than iri_fetch_listings()' 5-minute one: a
+ * sitemap is crawled rarely and rebuilding 1,500 rows on each hit is wasteful,
+ * and a stale-by-hours sitemap is harmless.
+ */
+function iri_sitemap_rows() {
+    $cached = get_transient( 'iri_sitemap_rows' );
+    if ( $cached !== false ) return $cached;
+
+    $resp = wp_remote_get(
+        add_query_arg( [ 'limit' => 5000 ], IRI_WORKER_URL . '/listings' ),
+        [ 'timeout' => 20 ]
+    );
+    if ( is_wp_error( $resp ) ) return [];
+
+    $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+    $rows = $body['listings'] ?? [];
+    if ( $rows ) set_transient( 'iri_sitemap_rows', $rows, IRI_SITEMAP_TTL );
+    return $rows;
+}
+
+function iri_build_listing_sitemap() {
+    global $wpseo_sitemaps;
+
+    $xml = '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
+    foreach ( iri_sitemap_rows() as $l ) {
+        $slug = $l['slug'] ?? '';
+        if ( ! $slug ) continue;
+
+        // rawurlencode the slug segment: a handful of listings have Japanese
+        // slugs, and <loc> must be URL-escaped per the sitemap spec.
+        $url = home_url( sprintf(
+            '/listing/%s/%s/%s/',
+            rawurlencode( $l['region'] ?? 'hokkaido' ),
+            rawurlencode( $l['taxonomy_property_area'] ?? '' ),
+            rawurlencode( $slug )
+        ) );
+
+        $xml .= "\t<url>\n\t\t<loc>" . esc_url( $url ) . "</loc>\n";
+        if ( ! empty( $l['last_updated'] ) ) {
+            $xml .= "\t\t<lastmod>" . esc_html( $l['last_updated'] ) . "</lastmod>\n";
+        }
+        $xml .= "\t</url>\n";
+    }
+    $xml .= '</urlset>';
+
+    $wpseo_sitemaps->set_sitemap( $xml );
+}
+
+// Rebuild on demand after a pipeline run: /?iri_flush_sitemap=1 as an admin.
+add_action( 'init', function () {
+    if ( isset( $_GET['iri_flush_sitemap'] ) && current_user_can( 'manage_options' ) ) {
+        delete_transient( 'iri_sitemap_rows' );
+    }
+}, 20 );
