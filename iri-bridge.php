@@ -4,7 +4,7 @@
  * Description: Connects Bricks Builder to the IRI Cloudflare D1 database via Worker API.
  *              Handles URL routing for /listings/{region}/{municipality}/{slug}/
  *              and registers dynamic data tags for all listing fields.
- * Version: 4.8.0
+ * Version: 4.8.1
  * GitHub Plugin URI: https://github.com/emperorTikki/iri-bridge
  * Primary Branch: master
  */
@@ -581,17 +581,13 @@ function iri_template_redirect() {
     global $iri_current_listing;
     $iri_current_listing = $listing;
 
-    // Increment view count — fire-and-forget (non-blocking, won't slow page load).
-    // Skips bots and WP cron; only counts real front-end page loads.
-    if ( ! is_admin() && ! ( defined( 'DOING_CRON' ) && DOING_CRON ) ) {
-        $lid = $listing['id'] ?? '';
-        if ( $lid ) {
-            wp_remote_get(
-                IRI_WORKER_URL . '/listings/' . rawurlencode( $lid ) . '/view',
-                [ 'blocking' => false, 'timeout' => 3 ]
-            );
-        }
-    }
+    // View counting moved client-side — see iri_view_ping_script() in wp_footer.
+    // A PHP-side ping here only fires on a full render, so once HTML caching is
+    // enabled (edge or origin) it silently stops counting every cached hit — the
+    // page keeps serving correctly, the counter just quietly goes wrong. Firing
+    // from the browser instead counts every real pageview regardless of which
+    // layer served the HTML, and as a side effect stops counting crawlers/bots
+    // that don't execute JS, which the old PHP ping could not distinguish.
 
     // Override the shell post title so Bricks / SEO plugins see the real title.
     global $post;
@@ -1121,6 +1117,35 @@ function iri_build_similar_listings_html( $listing ) {
     $html .= '</div>'; // .iri-similar
 
     return $html;
+}
+
+// ── 2b-1. View-count ping (single listing pages, all visitors) ────────────────
+// Fires from the browser rather than PHP so it counts every real pageview
+// regardless of whether the HTML was served fresh or from a cache — see the
+// comment left at the old call site in iri_render_listing(). Deliberately its
+// own tiny inline script rather than piggybacking on distances.js: that file
+// only loads when the [iri_distances] shortcode is present in the Bricks
+// template, and the counter should not depend on a content-editor's layout
+// choice. keepalive lets the request complete even if the visitor navigates
+// away immediately.
+
+add_action( 'wp_footer', 'iri_view_ping_script' );
+function iri_view_ping_script() {
+    global $iri_current_listing;
+    if ( ! get_query_var( 'iri_slug' ) ) return;
+    if ( empty( $iri_current_listing ) ) return;
+
+    $id = $iri_current_listing['id'] ?? '';
+    if ( ! $id ) return;
+    ?>
+    <script>
+    ( function () {
+        fetch( <?php echo wp_json_encode( IRI_WORKER_URL . '/listings/' . rawurlencode( $id ) . '/view' ); ?>,
+               { method: 'GET', keepalive: true, credentials: 'omit' } )
+            .catch( function () { /* best-effort — a missed view never blocks anything */ } );
+    } )();
+    </script>
+    <?php
 }
 
 // ── 2b. Admin toolbar (single listing pages, manage_options only) ─────────────
